@@ -13,7 +13,13 @@ import structlog
 
 from src.models.enums import OperationalStatus
 from src.models.telemetry import VehicleTelemetry
-from src.vehicle_agent.config import AgentConfig
+from src.vehicle_agent.config import (
+    SF_LAT_MAX,
+    SF_LAT_MIN,
+    SF_LON_MAX,
+    SF_LON_MIN,
+    AgentConfig,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -177,8 +183,57 @@ class SimpleTelemetryGenerator:
         self.current_longitude = math.degrees(new_lon)
         self.heading_degrees = math.degrees(bearing)
 
+        # Keep IDLE vehicles within the San Francisco city boundary
+        if status == OperationalStatus.IDLE:
+            self._apply_sf_boundary()
+
         # Update odometer
         self.baselines["odometer_km"] += distance_to_move
+
+    def _apply_sf_boundary(self) -> None:
+        """Reflect heading and clamp position when an IDLE vehicle crosses the SF boundary.
+
+        When the vehicle exits the bounding box along the latitude axis, the
+        north/south component of the heading is inverted (horizontal mirror).
+        When it exits along the longitude axis, the east/west component is
+        inverted (vertical mirror).  The position is then clamped to the
+        nearest boundary edge so the next tick starts inside the box.
+        """
+        heading_rad = math.radians(self.heading_degrees)
+        # Decompose heading into cardinal components
+        # heading 0° = North, 90° = East (standard bearing convention)
+        north_component = math.cos(heading_rad)
+        east_component = math.sin(heading_rad)
+
+        crossed = False
+
+        if self.current_latitude < SF_LAT_MIN:
+            self.current_latitude = SF_LAT_MIN
+            north_component = abs(north_component)  # force heading northward
+            crossed = True
+        elif self.current_latitude > SF_LAT_MAX:
+            self.current_latitude = SF_LAT_MAX
+            north_component = -abs(north_component)  # force heading southward
+            crossed = True
+
+        if self.current_longitude < SF_LON_MIN:
+            self.current_longitude = SF_LON_MIN
+            east_component = abs(east_component)  # force heading eastward
+            crossed = True
+        elif self.current_longitude > SF_LON_MAX:
+            self.current_longitude = SF_LON_MAX
+            east_component = -abs(east_component)  # force heading westward
+            crossed = True
+
+        if crossed:
+            self.heading_degrees = math.degrees(math.atan2(east_component, north_component)) % 360
+            logger.debug(
+                "boundary_reflection",
+                vehicle_id=self.config.vehicle_id,
+                new_heading=self.heading_degrees,
+                lat=self.current_latitude,
+                lon=self.current_longitude,
+            )
 
     def _add_noise(self, metric: str) -> float:
         """

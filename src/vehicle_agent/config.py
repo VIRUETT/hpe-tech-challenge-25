@@ -9,6 +9,14 @@ from pydantic_settings import BaseSettings
 
 from src.models.enums import OperationalStatus, VehicleType
 
+# San Francisco geographic bounding box.
+# Vehicles operating in IDLE mode are constrained to this region and will
+# reflect their heading when they reach any boundary edge.
+SF_LAT_MIN: float = 37.708  # Southern boundary (near Daly City border)
+SF_LAT_MAX: float = 37.833  # Northern boundary (near Golden Gate)
+SF_LON_MIN: float = -122.527  # Western boundary (Ocean Beach)
+SF_LON_MAX: float = -122.349  # Eastern boundary (near Bay Bridge toll)
+
 
 class AgentConfig(BaseSettings):
     """Configuration for a single vehicle agent.

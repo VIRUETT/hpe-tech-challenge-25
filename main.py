@@ -1,9 +1,18 @@
 import os
 import time
 
+import folium
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
+
+from src.vehicle_agent.config import (
+    SF_LAT_MAX,
+    SF_LAT_MIN,
+    SF_LON_MAX,
+    SF_LON_MIN,
+)
 
 # Configure page
 st.set_page_config(
@@ -34,6 +43,130 @@ def fetch_emergencies():
         return None
 
 
+def _vehicle_icon(status: str, has_alert: bool) -> tuple[str, str]:
+    """Return (color, emoji) for a vehicle marker based on its status.
+
+    Args:
+        status: Operational status string from the API.
+        has_alert: Whether the vehicle has an active maintenance alert.
+
+    Returns:
+        Tuple of (hex color string, emoji character).
+    """
+    if has_alert:
+        return "#FF0000", "🚨"
+    if status == "idle":
+        return "#16a34a", "🚑"
+    if status == "en_route":
+        return "#2563eb", "🚒"
+    if status == "on_scene":
+        return "#7c3aed", "🚓"
+    return "#6b7280", "🚗"
+
+
+def _render_folium_map(fleet_data: dict | None, emergencies: list | None) -> None:
+    """Build and render a Folium OpenStreetMap with vehicles and emergencies.
+
+    Vehicles are shown as coloured circle markers with popup details.
+    Emergencies are shown as orange markers. The SF boundary box is drawn
+    as a semi-transparent rectangle so operators can see the constrained zone.
+
+    Args:
+        fleet_data: JSON payload from GET /fleet, or None if unavailable.
+        emergencies: JSON list from GET /emergencies, or None if unavailable.
+    """
+    sf_center = [(SF_LAT_MIN + SF_LAT_MAX) / 2, (SF_LON_MIN + SF_LON_MAX) / 2]
+    fmap = folium.Map(
+        location=sf_center,
+        zoom_start=13,
+        tiles="OpenStreetMap",
+        control_scale=True,
+    )
+
+    # Draw the SF operating boundary as a thin dashed rectangle
+    folium.Rectangle(
+        bounds=[[SF_LAT_MIN, SF_LON_MIN], [SF_LAT_MAX, SF_LON_MAX]],
+        color="#6b7280",
+        weight=2,
+        dash_array="6 4",
+        fill=True,
+        fill_color="#6b7280",
+        fill_opacity=0.04,
+        tooltip="SF Operating Boundary",
+    ).add_to(fmap)
+
+    has_any_marker = False
+
+    # --- Vehicle markers ---
+    if fleet_data and "vehicles" in fleet_data:
+        for v in fleet_data["vehicles"]:
+            loc = v.get("location")
+            if not loc:
+                continue
+
+            has_any_marker = True
+            status = v.get("operational_status", "unknown")
+            has_alert = bool(v.get("has_active_alert"))
+            color, icon_emoji = _vehicle_icon(status, has_alert)
+
+            popup_html = (
+                f"<b>{icon_emoji} {v['vehicle_id']}</b><br>"
+                f"Type: {v.get('vehicle_type', 'N/A').replace('_', ' ').title()}<br>"
+                f"Status: <span style='color:{color}'><b>{status.replace('_', ' ').upper()}</b></span><br>"
+                f"Speed: {v.get('speed_kmh', 0):.0f} km/h<br>"
+                f"Battery: {v.get('battery_voltage', 0):.1f} V<br>"
+                f"Fuel: {v.get('fuel_level_percent', 0):.0f} %<br>"
+                f"Alert: {'YES' if has_alert else 'No'}"
+            )
+
+            folium.CircleMarker(
+                location=[loc["latitude"], loc["longitude"]],
+                radius=9,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.85,
+                weight=2,
+                popup=folium.Popup(popup_html, max_width=220),
+                tooltip=f"{icon_emoji} {v['vehicle_id']} ({status})",
+            ).add_to(fmap)
+
+    # --- Emergency markers ---
+    if emergencies:
+        for e in emergencies:
+            if e.get("status") == "resolved":
+                continue
+
+            has_any_marker = True
+            severity = e.get("severity", "unknown")
+            etype = e.get("emergency_type", "unknown").replace("_", " ").title()
+
+            popup_html = (
+                f"<b>🚨 {etype}</b><br>"
+                f"Severity: <b>{severity.upper()}</b><br>"
+                f"Status: {e.get('status', 'N/A')}<br>"
+                f"Description: {e.get('description', '')}<br>"
+                f"Assigned: {', '.join(e.get('assigned_vehicles', [])) or 'None'}"
+            )
+
+            folium.Marker(
+                location=[e["latitude"], e["longitude"]],
+                popup=folium.Popup(popup_html, max_width=260),
+                tooltip=f"🚨 {etype} ({severity})",
+                icon=folium.Icon(color="orange", icon="exclamation-sign", prefix="glyphicon"),
+            ).add_to(fmap)
+
+    if not has_any_marker:
+        # Fallback label when orchestrator is offline
+        folium.Marker(
+            location=sf_center,
+            tooltip="Waiting for data…",
+            icon=folium.Icon(color="gray", icon="time", prefix="glyphicon"),
+        ).add_to(fmap)
+
+    components.html(fmap._repr_html_(), height=520)
+
+
 def main():
     st.title("🚑 Project AEGIS - City Operations Dashboard")
     st.markdown(
@@ -61,51 +194,8 @@ def main():
     col_map, col_list = st.columns([2, 1])
 
     with col_map:
-        st.subheader("🗺️ City Map (Live)")
-        map_data = []
-
-        # Add vehicles to map
-        if fleet_data and "vehicles" in fleet_data:
-            for v in fleet_data["vehicles"]:
-                loc = v.get("location")
-                if loc:
-                    # Color coding: Green (available), Blue (on mission), Red (alert)
-                    color = "#00FF00"
-                    if v.get("operational_status") != "idle":
-                        color = "#0000FF"
-                    if v.get("has_active_alert"):
-                        color = "#FF0000"
-
-                    map_data.append(
-                        {
-                            "lat": loc["latitude"],
-                            "lon": loc["longitude"],
-                            "type": f"Vehicle: {v['vehicle_id']}",
-                            "color": color,
-                            "size": 100,
-                        }
-                    )
-
-        # Add emergencies to map
-        if emergencies:
-            for e in emergencies:
-                if e.get("status") != "resolved":
-                    # Orange for emergencies
-                    map_data.append(
-                        {
-                            "lat": e["latitude"],
-                            "lon": e["longitude"],
-                            "type": f"Emergency: {e['emergency_type']}",
-                            "color": "#FFA500",
-                            "size": 250,
-                        }
-                    )
-
-        if map_data:
-            df_map = pd.DataFrame(map_data)
-            st.map(df_map, latitude="lat", longitude="lon", color="color", size="size")
-        else:
-            st.info("No location data available for map.")
+        st.subheader("City Map (Live)")
+        _render_folium_map(fleet_data, emergencies)
 
     with col_list:
         st.subheader("🚨 Active Scenarios & Crimes")
