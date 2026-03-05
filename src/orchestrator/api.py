@@ -157,6 +157,10 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
     """
     ws_manager = ConnectionManager()
 
+    # Inject the WebSocket broadcast callback so the orchestrator can push
+    # live telemetry snapshots to all connected dashboard clients.
+    orchestrator._ws_broadcast = ws_manager.broadcast
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         """Start orchestrator listener on app startup, stop on shutdown."""
@@ -241,11 +245,49 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
                     "last_seen_at": snap.last_seen_at.isoformat(),
                     "battery_voltage": snap.battery_voltage,
                     "fuel_level_percent": snap.fuel_level_percent,
+                    "engine_temp_celsius": snap.engine_temp_celsius,
+                    "oil_pressure_bar": snap.oil_pressure_bar,
+                    "vibration_ms2": snap.vibration_ms2,
+                    "brake_pad_mm": snap.brake_pad_mm,
                     "has_active_alert": snap.has_active_alert,
                     "location": snap.location.model_dump(mode="json") if snap.location else None,
                 }
             )
         return FleetResponse(summary=summary, vehicles=vehicles)
+
+    @app.get("/alerts", tags=["fleet"])
+    async def get_alerts() -> list[dict[str, Any]]:
+        """Get all currently active predictive maintenance alerts.
+
+        Returns one entry per vehicle that has an active alert, with full
+        PredictiveAlert details.
+
+        Returns:
+            List of alert dicts, newest vehicles first.
+        """
+        result = []
+        for vehicle_id, alert in orchestrator.active_alerts.items():
+            result.append(
+                {
+                    "alert_id": alert.alert_id,
+                    "vehicle_id": vehicle_id,
+                    "timestamp": alert.timestamp.isoformat(),
+                    "severity": alert.severity.value,
+                    "category": alert.category.value,
+                    "component": alert.component,
+                    "failure_probability": alert.failure_probability,
+                    "confidence": alert.confidence,
+                    "predicted_failure_min_hours": alert.predicted_failure_min_hours,
+                    "predicted_failure_max_hours": alert.predicted_failure_max_hours,
+                    "predicted_failure_likely_hours": alert.predicted_failure_likely_hours,
+                    "can_complete_current_mission": alert.can_complete_current_mission,
+                    "recommended_action": alert.recommended_action,
+                    "safe_to_operate": alert.safe_to_operate,
+                    "contributing_factors": alert.contributing_factors,
+                    "related_telemetry": alert.related_telemetry,
+                }
+            )
+        return result
 
     # -----------------------------------------------------------------------
     # Emergencies

@@ -77,7 +77,8 @@ class UnitsRequired(BaseModel):
         return mapping.get(vehicle_type, 0)
 
 
-# Default units required per emergency type
+# Default units required per emergency type at MODERATE severity (baseline).
+# The generator and dispatch engine scale these up by severity multiplier.
 EMERGENCY_UNITS_DEFAULTS: dict[EmergencyType, UnitsRequired] = {
     EmergencyType.MEDICAL: UnitsRequired(ambulances=1),
     EmergencyType.FIRE: UnitsRequired(ambulances=1, fire_trucks=2),
@@ -87,6 +88,46 @@ EMERGENCY_UNITS_DEFAULTS: dict[EmergencyType, UnitsRequired] = {
     EmergencyType.RESCUE: UnitsRequired(ambulances=1, fire_trucks=1),
     EmergencyType.NATURAL_DISASTER: UnitsRequired(ambulances=2, fire_trucks=2, police=2),
 }
+
+# Severity multipliers: how many extra units to add for each severity tier.
+# At LOW (1) we use half the baseline; at CRITICAL (5) we triple it.
+# Values are applied as ceil(base_count × multiplier).
+SEVERITY_UNIT_MULTIPLIERS: dict[int, float] = {
+    EmergencySeverity.LOW.value: 0.5,
+    EmergencySeverity.MODERATE.value: 1.0,
+    EmergencySeverity.HIGH.value: 1.5,
+    EmergencySeverity.SEVERE.value: 2.0,
+    EmergencySeverity.CRITICAL.value: 3.0,
+}
+
+
+def scale_units_by_severity(
+    base: UnitsRequired,
+    severity: EmergencySeverity,
+) -> UnitsRequired:
+    """Return a new UnitsRequired scaled by the emergency severity level.
+
+    Args:
+        base: Baseline units for the emergency type.
+        severity: Severity of the incident.
+
+    Returns:
+        New UnitsRequired with counts scaled up/down by severity.
+    """
+    import math
+
+    multiplier = SEVERITY_UNIT_MULTIPLIERS.get(severity.value, 1.0)
+
+    def scale(count: int) -> int:
+        if count == 0:
+            return 0
+        return max(1, math.ceil(count * multiplier))
+
+    return UnitsRequired(
+        ambulances=scale(base.ambulances),
+        fire_trucks=scale(base.fire_trucks),
+        police=scale(base.police),
+    )
 
 
 class Emergency(BaseModel):

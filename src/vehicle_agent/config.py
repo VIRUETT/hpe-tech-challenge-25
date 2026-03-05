@@ -9,6 +9,69 @@ from pydantic_settings import BaseSettings
 
 from src.models.enums import OperationalStatus, VehicleType
 
+# San Francisco geographic bounding box.
+# Vehicles operating in IDLE mode are constrained to this region and will
+# reflect their heading when they reach any boundary edge.
+SF_LAT_MIN: float = 37.708  # Southern boundary (near Daly City border)
+SF_LAT_MAX: float = 37.833  # Northern boundary (near Golden Gate)
+SF_LON_MIN: float = -122.527  # Western boundary (Ocean Beach)
+SF_LON_MAX: float = -122.349  # Eastern boundary (near Bay Bridge toll)
+
+
+# ---------------------------------------------------------------------------
+# Per-vehicle-type sensor baselines
+# ---------------------------------------------------------------------------
+# Engine temperature baselines reflect real-world operating differences:
+#   - Ambulances run lighter diesel engines, typically 85–90°C
+#   - Fire trucks run heavy-duty V8/V10 diesels under constant load, ~92–98°C
+#   - Police units (interceptor SUVs/sedans) run at ~82–87°C
+#
+# Oil pressure baselines (bar):  normal idle/operating band per type
+# Vibration baselines (m/s²):    typical chassis vibration while moving
+# Brake pad baselines (mm):      new pad ~14 mm; warning <6 mm; critical <3 mm
+# ---------------------------------------------------------------------------
+
+VEHICLE_BASELINES: dict[VehicleType, dict[str, float]] = {
+    VehicleType.AMBULANCE: {
+        "engine_temp_celsius": 88.0,
+        "battery_voltage": 13.8,
+        "fuel_level_percent": 78.0,
+        "odometer_km": 42000.0,
+        "oil_pressure_bar": 3.5,
+        "vibration_ms2": 0.8,
+        "brake_pad_mm": 12.0,
+    },
+    VehicleType.FIRE_TRUCK: {
+        "engine_temp_celsius": 95.0,
+        "battery_voltage": 13.6,
+        "fuel_level_percent": 85.0,
+        "odometer_km": 55000.0,
+        "oil_pressure_bar": 4.2,
+        "vibration_ms2": 1.2,
+        "brake_pad_mm": 10.0,
+    },
+    VehicleType.POLICE: {
+        "engine_temp_celsius": 85.0,
+        "battery_voltage": 14.2,
+        "fuel_level_percent": 70.0,
+        "odometer_km": 68000.0,
+        "oil_pressure_bar": 3.2,
+        "vibration_ms2": 0.6,
+        "brake_pad_mm": 8.0,
+    },
+}
+
+# Noise levels as fractions of the baseline value (used as ±2σ of Gaussian noise).
+VEHICLE_NOISE_LEVELS: dict[str, float] = {
+    "engine_temp_celsius": 0.02,  # ±2%
+    "battery_voltage": 0.02,
+    "fuel_level_percent": 0.01,
+    "odometer_km": 0.0,  # Monotonically increasing; noise added elsewhere
+    "oil_pressure_bar": 0.03,  # ±3%
+    "vibration_ms2": 0.05,  # ±5%
+    "brake_pad_mm": 0.0,  # Changes only during failure injection
+}
+
 
 class AgentConfig(BaseSettings):
     """Configuration for a single vehicle agent.

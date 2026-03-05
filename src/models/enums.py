@@ -50,3 +50,6 @@ class FailureScenario(StrEnum):
     ENGINE_OVERHEAT = "engine_overheat"
     BATTERY_DEGRADATION = "battery_degradation"
     FUEL_LEAK = "fuel_leak"
+    OIL_PRESSURE_DROP = "oil_pressure_drop"
+    VIBRATION_ANOMALY = "vibration_anomaly"
+    BRAKE_DEGRADATION = "brake_degradation"

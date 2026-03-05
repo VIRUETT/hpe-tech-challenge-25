@@ -3,11 +3,12 @@
 **Project:** HPE GreenLake Tech Challenge - Digital Twin
 **Language:** Python 3.13 | **Manager:** `uv` | **Status:** POC
 
-This guide provides crucial context, commands, and rules for AI coding agents operating in this repository. 
+This guide provides crucial context, commands, and rules for AI coding agents operating in this repository.
 
 ## 🛠️ Development Commands
 
 ### Environment & Execution
+
 ```bash
 uv sync                           # Install all dependencies (including dev)
 uv sync --no-dev                  # Production dependencies only
@@ -17,7 +18,9 @@ uv run aegis-orchestrator         # Central coordinator
 ```
 
 ### Testing (Pytest)
+
 Agents must verify their work. Running a **single test** for targeted validation is highly recommended:
+
 ```bash
 # Running a single test (Recommended for rapid iteration):
 uv run pytest tests/unit/models/test_vehicle.py::TestGeoLocation::test_geolocation_valid_creation
@@ -31,6 +34,7 @@ uv run pytest --cov=src --cov-report=term-missing # Check missing coverage
 ```
 
 ### Linting, Formatting & Type Checking
+
 ```bash
 uv run ruff format .              # Format code (auto-fix)
 uv run ruff check --fix .         # Lint and fix auto-fixable issues
@@ -63,7 +67,9 @@ pre-commit run --all-files        # Run all pre-commit hooks
 - **Error Handling:** Use specific, targeted exceptions. NEVER use a bare `except:`.
 
 ### Imports Structure (PEP 8)
+
 Always group imports logically, separated by blank lines:
+
 ```python
 # 1. Standard library
 import os
@@ -93,3 +99,7 @@ from src.models.vehicle import VehicleIdentity
 3. **Structured Logging:** Use `structlog` for JSON logs instead of `print()`.
 4. **Timeouts:** Ensure all async I/O operations and network requests utilize appropriate timeouts.
 5. **Secrets:** Never hardcode secrets. Read them from the environment (e.g., via a `.env` file).
+
+# Agent Rules <!-- tessl-managed -->
+
+@.tessl/RULES.md follow the [instructions](.tessl/RULES.md)

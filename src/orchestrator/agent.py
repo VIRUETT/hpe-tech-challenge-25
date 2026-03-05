@@ -8,7 +8,9 @@ emergency dispatch.
 
 import asyncio
 import json
+from collections.abc import Callable, Coroutine
 from datetime import datetime
+from typing import Any
 
 import redis.asyncio as redis
 import structlog
@@ -37,6 +39,8 @@ EMERGENCY_DISPATCH_TIMEOUT_MINUTES = 10
 EMERGENCY_MAX_DURATION_MINUTES = 30
 # How often the background sweeper runs (seconds).
 SWEEPER_INTERVAL_SECONDS = 30.0
+# Accumulate this many telemetry records before writing them in a single DB transaction.
+TELEMETRY_BATCH_SIZE = 10
 
 
 class OrchestratorAgent:
@@ -62,6 +66,8 @@ class OrchestratorAgent:
         redis_password: str | None = None,
         redis_db: int = 0,
         fleet_id: str = "fleet01",
+        ws_broadcast_callback: Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
+        | None = None,
     ) -> None:
         """Initialize the orchestrator.
 
@@ -71,6 +77,10 @@ class OrchestratorAgent:
             redis_password: Optional Redis password.
             redis_db: Redis database number.
             fleet_id: Fleet identifier for channel naming.
+            ws_broadcast_callback: Optional async callable ``(event_type, data)``
+                used to push real-time events to WebSocket clients.  When
+                provided it is called on every processed telemetry tick
+                (``telemetry.update``) and on emergency state changes.
         """
         self._redis_host = redis_host
         self._redis_port = redis_port
@@ -78,15 +88,24 @@ class OrchestratorAgent:
         self._redis_db = redis_db
         self._fleet_id = fleet_id
 
+        # Optional callback for WebSocket broadcasting (injected by api.py)
+        self._ws_broadcast = ws_broadcast_callback
+
         self.fleet: dict[str, VehicleStatusSnapshot] = {}
         self.emergencies: dict[str, Emergency] = {}
         self.dispatches: dict[str, Dispatch] = {}
+        # Latest active PredictiveAlert per vehicle (cleared when alert_cleared received)
+        self.active_alerts: dict[str, PredictiveAlert] = {}
 
         self.dispatch_engine = DispatchEngine(self.fleet)
 
         self._redis: redis.Redis | None = None
         self._pubsub: redis.client.PubSub | None = None
         self.running = False
+
+        # Telemetry write buffer — records accumulate here until TELEMETRY_BATCH_SIZE
+        # is reached, then they are flushed in a single DB transaction.
+        self._telemetry_buffer: list[tuple[VehicleTelemetry, str]] = []
 
     async def start(self) -> None:
         """Connect to Redis and start background listener task.
@@ -131,6 +150,9 @@ class OrchestratorAgent:
                 await self._sweeper_task
             except asyncio.CancelledError:
                 pass
+        # Flush any remaining buffered telemetry before closing
+        if self._telemetry_buffer:
+            await self._flush_telemetry_buffer()
         if self._pubsub:
             await self._pubsub.punsubscribe()
             await self._pubsub.close()
@@ -225,11 +247,50 @@ class OrchestratorAgent:
         # Update key health metrics
         snap.battery_voltage = float(telemetry.battery_voltage)
         snap.fuel_level_percent = float(telemetry.fuel_level_percent)
+        snap.engine_temp_celsius = float(telemetry.engine_temp_celsius)
+        snap.oil_pressure_bar = (
+            float(telemetry.oil_pressure_bar) if telemetry.oil_pressure_bar is not None else None
+        )
+        snap.vibration_ms2 = (
+            float(telemetry.vibration_ms2) if telemetry.vibration_ms2 is not None else None
+        )
+        snap.brake_pad_mm = (
+            float(telemetry.brake_pad_mm) if telemetry.brake_pad_mm is not None else None
+        )
 
         logger.debug("telemetry_processed", vehicle_id=vehicle_id)
 
-        # Persist telemetry in the background
-        asyncio.create_task(self._persist_telemetry(telemetry, vehicle_id))
+        # Buffer telemetry for batched DB writes
+        self._telemetry_buffer.append((telemetry, vehicle_id))
+        if len(self._telemetry_buffer) >= TELEMETRY_BATCH_SIZE:
+            asyncio.create_task(self._flush_telemetry_buffer())
+
+        # Broadcast live snapshot to WebSocket clients if a callback is registered
+        if self._ws_broadcast is not None:
+            asyncio.create_task(
+                self._ws_broadcast(
+                    "telemetry.update",
+                    {
+                        "vehicle_id": vehicle_id,
+                        "latitude": telemetry.latitude,
+                        "longitude": telemetry.longitude,
+                        "engine_temp_celsius": float(telemetry.engine_temp_celsius),
+                        "battery_voltage": float(telemetry.battery_voltage),
+                        "fuel_level_percent": float(telemetry.fuel_level_percent),
+                        "oil_pressure_bar": float(telemetry.oil_pressure_bar)
+                        if telemetry.oil_pressure_bar is not None
+                        else None,
+                        "vibration_ms2": float(telemetry.vibration_ms2)
+                        if telemetry.vibration_ms2 is not None
+                        else None,
+                        "brake_pad_mm": float(telemetry.brake_pad_mm)
+                        if telemetry.brake_pad_mm is not None
+                        else None,
+                        "operational_status": snap.operational_status.value,
+                        "timestamp": telemetry.timestamp.isoformat(),
+                    },
+                )
+            )
 
     async def _persist_vehicle(self, vehicle_id: str, vehicle_type: str, status: str) -> None:
         """Background task to persist vehicle metadata."""
@@ -242,19 +303,33 @@ class OrchestratorAgent:
         except Exception as e:
             logger.error("db_persist_vehicle_error", vehicle_id=vehicle_id, error=str(e))
 
-    async def _persist_telemetry(self, telemetry: VehicleTelemetry, vehicle_id: str) -> None:
-        """Background task to persist telemetry."""
+    async def _flush_telemetry_buffer(self) -> None:
+        """Flush the in-memory telemetry buffer to the database in one transaction.
+
+        Drains ``self._telemetry_buffer`` atomically (swaps it for an empty list
+        before the DB round-trip so concurrent callers do not double-write) and
+        persists all buffered records inside a single session.
+        """
         if db.engine is None:
+            self._telemetry_buffer.clear()
             return
+
+        # Swap the buffer atomically so new records keep accumulating while we write
+        batch, self._telemetry_buffer = self._telemetry_buffer, []
+        if not batch:
+            return
+
         try:
             async with db.session() as session:
                 repo = TelemetryRepository(session)
-                await repo.save_telemetry(telemetry, vehicle_id)
+                for telemetry, vehicle_id in batch:
+                    await repo.save_telemetry(telemetry, vehicle_id)
+            logger.debug("telemetry_batch_flushed", count=len(batch))
         except Exception as e:
-            logger.error("db_persist_telemetry_error", vehicle_id=vehicle_id, error=str(e))
+            logger.error("db_flush_telemetry_error", count=len(batch), error=str(e))
 
     async def _handle_alert(self, alert: PredictiveAlert) -> None:
-        """Mark a vehicle as having an active alert.
+        """Mark a vehicle as having an active alert and store the full alert details.
 
         Args:
             alert: PredictiveAlert payload from a vehicle.
@@ -262,6 +337,8 @@ class OrchestratorAgent:
         vehicle_id = alert.vehicle_id
         if vehicle_id in self.fleet:
             self.fleet[vehicle_id].has_active_alert = True
+        # Keep the most recent alert for API/dashboard consumption
+        self.active_alerts[vehicle_id] = alert
         logger.info("alert_received", vehicle_id=vehicle_id, alert_id=alert.alert_id)
 
         # Persist alert in the background
@@ -289,9 +366,10 @@ class OrchestratorAgent:
             self.fleet[vehicle_id].has_active_alert = False
             self.fleet[vehicle_id].operational_status = OperationalStatus.IDLE
             logger.info("alert_cleared", vehicle_id=vehicle_id)
-
             # Retry any emergencies waiting for units
             await self._retry_dispatching_emergencies()
+        # Remove the stored alert
+        self.active_alerts.pop(vehicle_id, None)
 
     async def _retry_dispatching_emergencies(self) -> None:
         """Attempt to dispatch emergencies that previously had no available units.
@@ -479,10 +557,17 @@ class OrchestratorAgent:
         """Return a summary of the current fleet state.
 
         Returns:
-            Dict with total count, available count, and per-type breakdown.
+            Dict with total count, available count, on-mission count,
+            vehicles with alerts, active emergencies, and per-type breakdown.
         """
         total = len(self.fleet)
         available = sum(1 for s in self.fleet.values() if s.is_available)
+        on_mission = sum(
+            1
+            for s in self.fleet.values()
+            if s.operational_status.value in ("en_route", "on_scene", "returning")
+        )
+        vehicles_with_alerts = sum(1 for s in self.fleet.values() if s.has_active_alert)
         by_type: dict[str, dict[str, int]] = {}
 
         for snap in self.fleet.values():
@@ -496,6 +581,8 @@ class OrchestratorAgent:
         return {
             "total_vehicles": total,
             "available_vehicles": available,
+            "on_mission": on_mission,
+            "vehicles_with_alerts": vehicles_with_alerts,
             "active_emergencies": sum(
                 1
                 for e in self.emergencies.values()

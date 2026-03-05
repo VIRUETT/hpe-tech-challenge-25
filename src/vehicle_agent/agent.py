@@ -15,6 +15,7 @@ import structlog
 
 from src.ml.predictor import Predictor
 from src.models.enums import OperationalStatus
+from src.vehicle_agent.anomaly_detector import AnomalyDetector
 from src.vehicle_agent.config import AgentConfig
 from src.vehicle_agent.failure_injector import FailureInjector
 from src.vehicle_agent.failure_scheduler import FailureScheduler
@@ -73,11 +74,14 @@ class VehicleAgent:
         # Initialize components
         self.redis_client = RedisClient(config)
         self.telemetry_generator = SimpleTelemetryGenerator(config)
-        self.failure_injector = FailureInjector()
+        self.failure_injector = FailureInjector(vehicle_type=config.vehicle_type)
         self.failure_scheduler = FailureScheduler(
             failure_rate_per_hour=2.0
         )  # Average 2 failures per hour
         self.anomaly_detector = Predictor(config.vehicle_id)
+        # Rule-based fallback used while the ML window is warming up (first 10 ticks)
+        self._rule_detector = AnomalyDetector(config.vehicle_id)
+        self._tick_count: int = 0
 
         logger.info(
             "agent_initialized",
@@ -237,8 +241,17 @@ class VehicleAgent:
             # 4. Apply active failure scenarios
             telemetry = self.failure_injector.apply_failures(telemetry)
 
-            # 5. Detect anomalies and generate alerts
-            alerts = self.anomaly_detector.analyze(telemetry)
+            # 5. Detect anomalies and generate alerts.
+            #    During the first 10 ticks the ML sliding window is not full;
+            #    fall back to the rule-based AnomalyDetector until it warms up.
+            self._tick_count += 1
+            if self._tick_count <= 10:
+                alerts = self._rule_detector.analyze(telemetry)
+            else:
+                alerts = self.anomaly_detector.analyze(telemetry)
+                # If ML returns nothing but rules see something, use rules as safety net
+                if not alerts:
+                    alerts = self._rule_detector.analyze(telemetry)
 
             # 5a. If a CRITICAL alert is raised and the vehicle has active failures,
             #     send it to MAINTENANCE so it can be repaired and return later.

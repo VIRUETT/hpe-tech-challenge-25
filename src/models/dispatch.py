@@ -144,6 +144,12 @@ class VehicleStatusSnapshot(BaseModel):
     fuel_level_percent: float | None = Field(
         None, ge=0, le=100, description="Last known fuel level (%)"
     )
+    engine_temp_celsius: float | None = Field(
+        None, description="Last known engine temperature (°C)"
+    )
+    oil_pressure_bar: float | None = Field(None, description="Last known oil pressure (bar)")
+    vibration_ms2: float | None = Field(None, description="Last known vibration level (m/s²)")
+    brake_pad_mm: float | None = Field(None, description="Last known brake pad thickness (mm)")
     has_active_alert: bool = Field(
         default=False, description="Whether vehicle has an active warning/critical alert"
     )

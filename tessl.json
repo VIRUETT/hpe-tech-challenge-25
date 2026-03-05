@@ -1,0 +1,104 @@
+{
+  "name": "project",
+  "dependencies": {
+    "tessl/pypi-asyncpg": {
+      "version": "0.30.0"
+    },
+    "tessl/pypi-click": {
+      "version": "8.2.0"
+    },
+    "tessl/pypi-fastapi": {
+      "version": "0.116.0"
+    },
+    "tessl/pypi-numpy": {
+      "version": "2.3.0"
+    },
+    "tessl/pypi-pandas": {
+      "version": "2.3.0"
+    },
+    "tessl/pypi-psycopg2-binary": {
+      "version": "2.9.0"
+    },
+    "tessl/pypi-pyarrow": {
+      "version": "21.0.0"
+    },
+    "tessl/pypi-pydantic": {
+      "version": "2.11.0"
+    },
+    "tessl/pypi-pydantic-settings": {
+      "version": "2.10.0"
+    },
+    "tessl/pypi-python-dateutil": {
+      "version": "2.9.0"
+    },
+    "tessl/pypi-python-dotenv": {
+      "version": "1.1.0"
+    },
+    "tessl/pypi-pyyaml": {
+      "version": "6.0.0"
+    },
+    "tessl/pypi-redis": {
+      "version": "6.4.0"
+    },
+    "tessl/pypi-scikit-learn": {
+      "version": "1.7.0"
+    },
+    "tessl/pypi-sqlalchemy": {
+      "version": "2.0.0"
+    },
+    "tessl/pypi-streamlit": {
+      "version": "1.50.0"
+    },
+    "tessl/pypi-structlog": {
+      "version": "25.4.0"
+    },
+    "tessl/pypi-uvicorn": {
+      "version": "0.37.0"
+    },
+    "tessl/pypi-websockets": {
+      "version": "15.0.0"
+    },
+    "tessl/pypi-bandit": {
+      "version": "1.8.0"
+    },
+    "tessl/pypi-mypy": {
+      "version": "1.17.0"
+    },
+    "tessl/pypi-pre-commit": {
+      "version": "4.3.0"
+    },
+    "tessl/pypi-pytest": {
+      "version": "8.4.0"
+    },
+    "tessl/pypi-pytest-cov": {
+      "version": "6.2.0"
+    },
+    "tessl/pypi-pytest-mock": {
+      "version": "3.14.0"
+    },
+    "tessl/pypi-pytest-xdist": {
+      "version": "3.8.0"
+    },
+    "tessl/pypi-types-pyyaml": {
+      "version": "5.4.0"
+    },
+    "tessl/pypi-jupyter": {
+      "version": "1.1.0"
+    },
+    "tessl/pypi-matplotlib": {
+      "version": "3.10.0"
+    },
+    "tessl/pypi-seaborn": {
+      "version": "0.13.0"
+    },
+    "tessl/pypi-torch": {
+      "version": "2.8.0"
+    },
+    "pantheon-ai/bdd-testing": {
+      "version": "0.2.0"
+    },
+    "pantheon-ai/agents-md": {
+      "version": "0.1.3"
+    }
+  }
+}

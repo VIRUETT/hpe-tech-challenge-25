@@ -5,7 +5,7 @@ Automatic emergency generation system using a Poisson process.
 import asyncio
 import math
 import random
-from datetime import datetime
+from datetime import UTC, datetime
 
 import structlog
 
@@ -15,6 +15,7 @@ from src.models.emergency import (
     EmergencySeverity,
     EmergencyType,
     Location,
+    scale_units_by_severity,
 )
 from src.orchestrator.agent import OrchestratorAgent
 
@@ -88,9 +89,9 @@ class EmergencyGenerator:
         em_type = random.choice(list(EmergencyType))
         severity = random.choice(list(EmergencySeverity))
 
-        location = Location(latitude=lat, longitude=lon, timestamp=datetime.utcnow())
+        location = Location(latitude=lat, longitude=lon, timestamp=datetime.now(UTC))
 
-        units_required = EMERGENCY_UNITS_DEFAULTS[em_type]
+        units_required = scale_units_by_severity(EMERGENCY_UNITS_DEFAULTS[em_type], severity)
 
         emergency = Emergency(
             emergency_type=em_type,
