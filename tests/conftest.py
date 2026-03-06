@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 # Import all fixtures from fixture modules
 pytest_plugins = [
-    "tests.fixtures.model_fixtures",
+    "fixtures.model_fixtures",
 ]
 
 

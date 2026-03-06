@@ -20,7 +20,8 @@ from src.models.emergency import (
 from src.models.enums import AlertSeverity, FailureCategory, OperationalStatus, VehicleType
 from src.models.telemetry import VehicleTelemetry
 from src.models.vehicle import Location
-from src.orchestrator.agent import OrchestratorAgent, _infer_vehicle_type
+from src.orchestrator.agent import OrchestratorAgent
+from src.orchestrator.fleet_service import _infer_vehicle_type
 
 # ---------------------------------------------------------------------------
 # Helpers
