@@ -129,7 +129,7 @@ class Predictor:
 
         # Extract real probability from predict_proba
         proba_array: np.ndarray = self.model.predict_proba(df)[0]
-        proba_dict: dict[str, float] = dict(zip(self._classes, proba_array.tolist()))
+        proba_dict: dict[str, float] = dict(zip(self._classes, proba_array.tolist(), strict=False))
         failure_probability = float(proba_dict.get(prediction, 0.5))
 
         # Confidence: 1 − entropy-normalised uncertainty

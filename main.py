@@ -239,7 +239,7 @@ def _render_alert_panel(alerts: list | None) -> None:
     for alert in sorted_alerts:
         sev = alert.get("severity", "info")
         badge = _SEVERITY_BADGE.get(sev, "⚪")
-        color = _SEVERITY_COLOR.get(sev, "#6b7280")
+        color = _SEVERITY_COLOR.get(sev, "#6b7280")  # noqa: F841
         vid = alert.get("vehicle_id", "?")
         component = alert.get("component", "?")
         prob = alert.get("failure_probability", 0.0)
@@ -264,7 +264,7 @@ def _render_alert_panel(alerts: list | None) -> None:
 
             if telem:
                 telem_cols = st.columns(len(telem))
-                for col, (k, v) in zip(telem_cols, telem.items()):
+                for col, (k, v) in zip(telem_cols, telem.items(), strict=False):
                     if isinstance(v, float):
                         col.metric(k.replace("_", " ").title(), f"{v:.2f}")
                     else:
@@ -422,7 +422,7 @@ def main() -> None:
                 if by_type:
                     st.caption("Fleet breakdown by type")
                     type_cols = st.columns(len(by_type))
-                    for tc, (vtype, counts) in zip(type_cols, by_type.items()):
+                    for tc, (vtype, counts) in zip(type_cols, by_type.items(), strict=False):
                         tc.metric(
                             vtype.replace("_", " ").title(),
                             f"{counts['available']}/{counts['total']} avail",

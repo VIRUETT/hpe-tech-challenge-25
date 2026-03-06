@@ -94,7 +94,9 @@ class FailureInjector:
         Temperature rises +2°C per minute from the vehicle-type baseline,
         capped at 150°C.
         """
-        elapsed_seconds = self.get_time_since_activation(FailureScenario.ENGINE_OVERHEAT)
+        elapsed_seconds = self.get_time_since_activation(
+            FailureScenario.ENGINE_OVERHEAT
+        )
         elapsed_minutes = elapsed_seconds / 60.0
 
         base_temp = self._baselines["engine_temp_celsius"]
@@ -103,12 +105,16 @@ class FailureInjector:
 
         return telemetry
 
-    def _apply_battery_degradation(self, telemetry: VehicleTelemetry) -> VehicleTelemetry:
+    def _apply_battery_degradation(
+        self, telemetry: VehicleTelemetry
+    ) -> VehicleTelemetry:
         """Apply battery degradation scenario.
 
         Voltage drops -0.1 V every 5 minutes from the vehicle-type baseline.
         """
-        elapsed_seconds = self.get_time_since_activation(FailureScenario.BATTERY_DEGRADATION)
+        elapsed_seconds = self.get_time_since_activation(
+            FailureScenario.BATTERY_DEGRADATION
+        )
         elapsed_minutes = elapsed_seconds / 60.0
 
         base_voltage = self._baselines["battery_voltage"]
@@ -137,7 +143,9 @@ class FailureInjector:
         Pressure drops -0.3 bar per minute from the vehicle-type baseline.
         Critical threshold is <1.0 bar.
         """
-        elapsed_seconds = self.get_time_since_activation(FailureScenario.OIL_PRESSURE_DROP)
+        elapsed_seconds = self.get_time_since_activation(
+            FailureScenario.OIL_PRESSURE_DROP
+        )
         elapsed_minutes = elapsed_seconds / 60.0
 
         base_pressure = self._baselines["oil_pressure_bar"]
@@ -152,7 +160,9 @@ class FailureInjector:
         Vibration rises +0.5 m/s² per minute from the vehicle-type baseline.
         Critical threshold is >8 m/s².
         """
-        elapsed_seconds = self.get_time_since_activation(FailureScenario.VIBRATION_ANOMALY)
+        elapsed_seconds = self.get_time_since_activation(
+            FailureScenario.VIBRATION_ANOMALY
+        )
         elapsed_minutes = elapsed_seconds / 60.0
 
         base_vib = self._baselines["vibration_ms2"]
@@ -167,7 +177,9 @@ class FailureInjector:
         Brake pad thickness decreases -0.2 mm per minute from baseline.
         Warning threshold <6 mm; critical threshold <3 mm.
         """
-        elapsed_seconds = self.get_time_since_activation(FailureScenario.BRAKE_DEGRADATION)
+        elapsed_seconds = self.get_time_since_activation(
+            FailureScenario.BRAKE_DEGRADATION
+        )
         elapsed_minutes = elapsed_seconds / 60.0
 
         base_pad = self._baselines["brake_pad_mm"]

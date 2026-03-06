@@ -114,7 +114,7 @@ def _generate_labels(
         Ordered list of label strings.
     """
     config = AgentConfig(
-        vehicle_id=f"TRN-TEST-001",
+        vehicle_id="TRN-TEST-001",
         vehicle_type=vehicle_type,
         telemetry_frequency_hz=1.0,
     )
@@ -211,7 +211,7 @@ def generate_brake_degradation_ambulance(ctx: WarmupContext) -> None:
 def all_labels_normal(ctx: WarmupContext) -> None:
     """Assert every row in the dataset is labelled 'normal'."""
     assert len(ctx.labels) > 0, "No labels generated"
-    non_normal = [l for l in ctx.labels if l != "normal"]
+    non_normal = [label for label in ctx.labels if label != "normal"]
     assert len(non_normal) == 0, f"Found non-normal labels: {set(non_normal)}"
 
 
@@ -234,8 +234,8 @@ def has_failure_label(ctx: WarmupContext, label: str) -> None:
 )
 def normal_before_failure(ctx: WarmupContext, failure_label: str) -> None:
     """Assert all normal rows precede all failure-labelled rows."""
-    normal_indices = [i for i, l in enumerate(ctx.labels) if l == "normal"]
-    failure_indices = [i for i, l in enumerate(ctx.labels) if l == failure_label]
+    normal_indices = [i for i, label in enumerate(ctx.labels) if label == "normal"]
+    failure_indices = [i for i, label in enumerate(ctx.labels) if label == failure_label]
 
     if not normal_indices or not failure_indices:
         # Not enough data to verify ordering — skip rather than false-fail

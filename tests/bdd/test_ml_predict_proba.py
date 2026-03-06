@@ -6,12 +6,13 @@ predict_proba output rather than returning hard-coded constants.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 from pytest_bdd import given, parsers, scenario, then, when
 
+from src.ml.predictor import Predictor
 from src.models.enums import AlertSeverity, VehicleType
 from src.models.telemetry import VehicleTelemetry
 from src.vehicle_agent.config import VEHICLE_BASELINES
@@ -58,7 +59,7 @@ class ProbaContext:
 
     def __init__(self) -> None:
         """Initialize with empty state."""
-        self.predictor: "Predictor | None" = None  # type: ignore[name-defined]
+        self.predictor: Predictor | None = None  # type: ignore[name-defined]
         self.mock_model: MagicMock | None = None
         self.predicted_class: str = "normal"
         self.predicted_proba: float = 0.5
@@ -135,7 +136,6 @@ def _make_predictor_with_full_window(mock_model: MagicMock) -> "Predictor":
     Returns:
         Predictor instance with 10 telemetry readings pre-loaded.
     """
-    from src.ml.predictor import Predictor
 
     predictor = Predictor.__new__(Predictor)
     predictor.vehicle_id = "TEST-AMB-001"

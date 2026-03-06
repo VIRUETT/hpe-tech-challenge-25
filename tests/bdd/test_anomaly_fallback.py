@@ -7,11 +7,12 @@ as a safety net when the ML model returns no alerts.
 """
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from pytest_bdd import given, parsers, scenario, then, when
 
+from src.models.alerts import PredictiveAlert
 from src.models.enums import AlertSeverity, FailureCategory, VehicleType
 from src.models.telemetry import VehicleTelemetry
 from src.vehicle_agent.config import VEHICLE_BASELINES
@@ -43,7 +44,10 @@ def test_ml_used_tick_50() -> None:
     """Fallback: ML predictor called on tick 50."""
 
 
-@scenario(FEATURE, "Rule-based detector acts as safety net when ML returns no alerts on tick 11")
+@scenario(
+    FEATURE,
+    "Rule-based detector acts as safety net when ML returns no alerts on tick 11",
+)
 def test_rule_safety_net() -> None:
     """Fallback: rule detector fills in when ML returns nothing on tick 11+."""
 
@@ -98,7 +102,6 @@ def _make_telemetry() -> VehicleTelemetry:
 
 def _make_dummy_alert() -> "PredictiveAlert":  # type: ignore[name-defined]
     """Create a dummy predictive alert for testing."""
-    from src.models.alerts import PredictiveAlert
 
     return PredictiveAlert(
         vehicle_id="TEST-AMB-001",

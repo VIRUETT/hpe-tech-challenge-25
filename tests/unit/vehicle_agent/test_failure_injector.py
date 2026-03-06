@@ -5,9 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.models.enums import FailureScenario
+from src.models.enums import FailureScenario, VehicleType
 from src.models.telemetry import VehicleTelemetry
+from src.vehicle_agent.config import VEHICLE_BASELINES
 from src.vehicle_agent.failure_injector import FailureInjector
+
+# FailureInjector uses vehicle-type baselines from config, not incoming telemetry.
+AMBULANCE = VEHICLE_BASELINES[VehicleType.AMBULANCE]
 
 
 class TestFailureInjector:
@@ -88,24 +92,24 @@ class TestFailureInjector:
         injector: FailureInjector,
         sample_telemetry: VehicleTelemetry,
     ) -> None:
-        """Test engine overheat scenario progression."""
+        """Test engine overheat scenario progression from ambulance baseline."""
         injector.activate_scenario(FailureScenario.ENGINE_OVERHEAT)
+        base = AMBULANCE["engine_temp_celsius"]
 
-        # Initial state (0 minutes)
+        # Initial state (0 minutes): baseline + 0
         mock_get_time.return_value = 0.0
         mod_0 = injector.apply_failures(sample_telemetry)
-        assert mod_0.engine_temp_celsius == 90.0
+        assert mod_0.engine_temp_celsius == base
 
-        # After 5 minutes (5 * 60 seconds)
-        # Should increase by 2 degrees per minute (10 degrees total)
+        # After 5 minutes: baseline + 2°C/min * 5 = +10
         mock_get_time.return_value = 300.0
         mod_5 = injector.apply_failures(sample_telemetry)
-        assert mod_5.engine_temp_celsius == 100.0
+        assert mod_5.engine_temp_celsius == base + 10.0
 
-        # After 15 minutes (15 * 60 seconds)
+        # After 15 minutes: baseline + 2°C/min * 15 = +30
         mock_get_time.return_value = 900.0
         mod_15 = injector.apply_failures(sample_telemetry)
-        assert mod_15.engine_temp_celsius == 120.0
+        assert mod_15.engine_temp_celsius == base + 30.0
 
     @patch("src.vehicle_agent.failure_injector.FailureInjector.get_time_since_activation")
     def test_apply_battery_degradation(
@@ -135,19 +139,19 @@ class TestFailureInjector:
         injector: FailureInjector,
         sample_telemetry: VehicleTelemetry,
     ) -> None:
-        """Test fuel leak progression."""
+        """Test fuel leak progression from ambulance baseline."""
         injector.activate_scenario(FailureScenario.FUEL_LEAK)
+        base = AMBULANCE["fuel_level_percent"]
 
-        # Initial state (0 minutes)
+        # Initial state (0 minutes): baseline - 0
         mock_get_time.return_value = 0.0
         mod_0 = injector.apply_failures(sample_telemetry)
-        assert mod_0.fuel_level_percent == 75.0
+        assert mod_0.fuel_level_percent == base
 
-        # After 5 minutes (5 * 60 seconds)
-        # Should drop by 5% per minute = 25% total
+        # After 5 minutes: baseline - 5%/min * 5 = -25%
         mock_get_time.return_value = 300.0
         mod_5 = injector.apply_failures(sample_telemetry)
-        assert mod_5.fuel_level_percent == 50.0
+        assert mod_5.fuel_level_percent == base - 25.0
 
     @patch("src.vehicle_agent.failure_injector.FailureInjector.get_time_since_activation")
     def test_apply_multiple_failures(
@@ -156,7 +160,7 @@ class TestFailureInjector:
         injector: FailureInjector,
         sample_telemetry: VehicleTelemetry,
     ) -> None:
-        """Test applying multiple scenarios simultaneously."""
+        """Test applying multiple scenarios simultaneously from ambulance baselines."""
         injector.activate_scenario(FailureScenario.ENGINE_OVERHEAT)
         injector.activate_scenario(FailureScenario.BATTERY_DEGRADATION)
 
@@ -165,9 +169,11 @@ class TestFailureInjector:
 
         modified = injector.apply_failures(sample_telemetry)
 
-        # Check both scenarios applied
-        assert modified.engine_temp_celsius == 110.0  # +2 * 10
-        assert modified.battery_voltage == pytest.approx(13.6)  # -0.1 * 2
+        # Engine: baseline + 2°C/min * 10; battery: baseline - 0.1V per 5 min * 2
+        assert modified.engine_temp_celsius == AMBULANCE["engine_temp_celsius"] + 20.0
+        assert modified.battery_voltage == pytest.approx(
+            AMBULANCE["battery_voltage"] - 0.2
+        )
 
     def test_telemetry_immutability(
         self, injector: FailureInjector, sample_telemetry: VehicleTelemetry

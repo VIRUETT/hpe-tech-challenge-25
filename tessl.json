@@ -99,6 +99,9 @@
     },
     "pantheon-ai/agents-md": {
       "version": "0.1.3"
+    },
+    "tessl/pypi-folium": {
+      "version": "0.20.0"
     }
   }
 }
