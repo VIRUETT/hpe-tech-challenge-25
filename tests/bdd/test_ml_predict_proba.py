@@ -139,9 +139,9 @@ def _make_predictor_with_full_window(mock_model: MagicMock) -> "Predictor":
 
     predictor = Predictor.__new__(Predictor)
     predictor.vehicle_id = "TEST-AMB-001"
-    from src.ml.feature_extractor import FeatureExtractor
+    from src.ml.feature_extractor import TelemetryFeatureExtractor
 
-    predictor.extractor = FeatureExtractor(window_size=10)
+    predictor.extractor = TelemetryFeatureExtractor(window_size=10)
     predictor.model = mock_model
     predictor._classes = list(mock_model.classes_)
 

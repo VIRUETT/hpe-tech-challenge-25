@@ -6,16 +6,21 @@ sliding window of telemetry readings.  Supports the original 3 sensor channels
 plus the 3 new channels added in Track A-3 (oil_pressure_bar, vibration_ms2,
 brake_pad_mm).  New channels are only included when at least one reading in the
 window has a non-None value.
+
+Feature extractor for crime prediction models.
 """
 
 from collections import deque
+from datetime import datetime
 
 import numpy as np
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder
 
 from src.models.telemetry import VehicleTelemetry
 
 
-class FeatureExtractor:
+class TelemetryFeatureExtractor:
     """Extracts features from a sliding window of vehicle telemetry."""
 
     def __init__(self, window_size: int = 10) -> None:
@@ -110,3 +115,90 @@ class FeatureExtractor:
             features["brake_pad_roc"] = 0.0
 
         return features
+
+class CrimeFeatureExtractor:
+    """Extracts and engineers features for crime prediction."""
+
+    def __init__(self) -> None:
+        """Initialize the feature extractor for crime predictions."""
+        self.label_encoders: dict[str, LabelEncoder] = {}
+        self.feature_columns: list[str] = []
+
+    def engineer_training_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Process raw historical data to create features for model training.
+        """
+        df = df.copy()
+
+        # 1. Asegurar formato de fechas
+        if 'fecha_dt' not in df.columns:
+            if 'fecha' in df.columns:
+                df['fecha_dt'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
+            else:
+                df['fecha_dt'] = pd.Timestamp.now()
+
+        # 2. Características temporales básicas
+        if 'hour_int' not in df.columns:
+            df['hour_int'] = pd.to_datetime(df['hora'], format='%H:%M', errors='coerce').dt.hour
+
+        df['hora'] = df['hour_int']
+        df['dia_semana'] = df['fecha_dt'].dt.dayofweek
+        df['mes'] = df['fecha_dt'].dt.month
+        df['año'] = df['fecha_dt'].dt.year
+        df['fin_semana'] = (df['dia_semana'] >= 5).astype(int)
+
+        # Características cíclicas
+        df['hora_sin'] = np.sin(2 * np.pi * df['hora'] / 24)
+        df['hora_cos'] = np.cos(2 * np.pi * df['hora'] / 24)
+        df['dia_sin'] = np.sin(2 * np.pi * df['dia_semana'] / 7)
+        df['dia_cos'] = np.cos(2 * np.pi * df['dia_semana'] / 7)
+        df['mes_sin'] = np.sin(2 * np.pi * df['mes'] / 12)
+        df['mes_cos'] = np.cos(2 * np.pi * df['mes'] / 12)
+
+        # Codificación de variables categoricas
+        categorical_cols = ['crime_type', 'nivel_económico', 'nombre_de_la_colonia']
+        for col in categorical_cols:
+            if col in df.columns:
+                le = LabelEncoder()
+                df[col] = df[col].fillna('desconocido')
+                df[f'{col}_cod'] = le.fit_transform(df[col].astype(str))
+                self.label_encoders[col] = le
+
+        # 5. Crear variable objetivo (Target)
+        if 'nombre_de_la_colonia' in df.columns:
+            crime_counts = df['nombre_de_la_colonia'].value_counts()
+            threshold = crime_counts.quantile(0.80)
+            high_risk_areas = crime_counts[crime_counts >= threshold].index.tolist()
+            df['alto_riesgo'] = df['nombre_de_la_colonia'].isin(high_risk_areas).astype(int)
+        else:
+            df['alto_riesgo'] = 0
+
+        # 6. Definir columnas finales a exportar
+        feature_candidates = [
+            'hora', 'dia_semana', 'mes', 'fin_semana',
+            'hora_sin', 'hora_cos', 'dia_sin', 'dia_cos', 'mes_sin', 'mes_cos',
+            'índice_densidad_poblacional'
+        ]
+        
+        self.feature_columns = [feat for feat in feature_candidates if feat in df.columns]
+        if 'nivel_económico_cod' in df.columns:
+            self.feature_columns.append('nivel_económico_cod')
+
+        return df
+
+    def create_time_features(self, time_point: datetime) -> dict[str, float]:
+        """
+        Create standard cyclical time features for real-time inference.
+        """
+        return {
+            'hora': time_point.hour,
+            'dia_semana': time_point.weekday(),
+            'mes': time_point.month,
+            'fin_semana': 1 if time_point.weekday() >= 5 else 0,
+            'hora_sin': float(np.sin(2 * np.pi * time_point.hour / 24)),
+            'hora_cos': float(np.cos(2 * np.pi * time_point.hour / 24)),
+            'dia_sin': float(np.sin(2 * np.pi * time_point.weekday() / 7)),
+            'dia_cos': float(np.cos(2 * np.pi * time_point.weekday() / 7)),
+            'mes_sin': float(np.sin(2 * np.pi * time_point.month / 12)),
+            'mes_cos': float(np.cos(2 * np.pi * time_point.month / 12))
+        }

@@ -8,7 +8,7 @@ warm-up phase and failure-specific labels during the failure phase.
 import pytest
 from pytest_bdd import given, parsers, scenario, then
 
-from src.ml.feature_extractor import FeatureExtractor
+from src.ml.feature_extractor import TelemetryFeatureExtractor
 from src.models.enums import FailureScenario, OperationalStatus, VehicleType
 from src.vehicle_agent.config import AgentConfig
 from src.vehicle_agent.failure_injector import FailureInjector
@@ -120,7 +120,7 @@ def _generate_labels(
     )
     generator = SimpleTelemetryGenerator(config)
     injector = FailureInjector(vehicle_type=vehicle_type)
-    extractor = FeatureExtractor(window_size=10)
+    extractor = TelemetryFeatureExtractor(window_size=10)
     labels: list[str] = []
 
     # Warm-up phase

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from src.ml.feature_extractor import FeatureExtractor
+from src.ml.feature_extractor import TelemetryFeatureExtractor
 from src.models.alerts import PredictiveAlert
 from src.models.enums import AlertSeverity, FailureCategory, FailureScenario
 from src.models.telemetry import VehicleTelemetry
@@ -85,7 +85,7 @@ class Predictor:
             model_path: Path to the trained ML model
         """
         self.vehicle_id = vehicle_id
-        self.extractor = FeatureExtractor(window_size=10)
+        self.extractor = TelemetryFeatureExtractor(window_size=10)
         self.model = None
         self._classes: list[str] = []
 

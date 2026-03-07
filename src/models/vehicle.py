@@ -9,6 +9,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from src.models.enums import OperationalStatus, VehicleType
+from src.models.telemetry import VehicleTelemetry
 
 
 class Location(BaseModel):
