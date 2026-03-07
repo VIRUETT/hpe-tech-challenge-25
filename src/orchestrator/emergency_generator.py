@@ -1,10 +1,10 @@
 """
-Automatic emergency generation system using a Poisson process.
+AI-driven emergency generation system for Project AEGIS.
+
+Provides real-time predictive analytics using the Random Forest crime model.
 """
 
 import asyncio
-import math
-import random
 from datetime import UTC, datetime
 
 import structlog
@@ -18,96 +18,108 @@ from src.models.emergency import (
     scale_units_by_severity,
 )
 from src.orchestrator.agent import OrchestratorAgent
+from src.ml.predictor import CrimePredictor
 
 logger = structlog.get_logger(__name__)
 
 
 class EmergencyGenerator:
-    """Generates random emergencies around a center point."""
+    """Generates emergencies based on AI predictions across city neighborhoods."""
 
     def __init__(
         self,
         orchestrator: OrchestratorAgent,
-        center_lat: float = 37.7749,
-        center_lon: float = -122.4194,
-        radius_km: float = 5.0,
-        rate_per_hour: float = 12.0,  # One every 5 mins on average
+        check_interval_seconds: float = 300.0,  # Scan the city every 5 minutes
     ) -> None:
         """
-        Initialize the emergency generator.
+        Initialize the predictive emergency generator.
 
         Args:
             orchestrator: The orchestrator to submit emergencies to.
-            center_lat: Base latitude for generated incidents.
-            center_lon: Base longitude for generated incidents.
-            radius_km: Max distance from center to generate incidents.
-            rate_per_hour: Average number of emergencies per hour.
+            check_interval_seconds: How often to run the ML model inference.
         """
         self.orchestrator = orchestrator
-        self.center_lat = center_lat
-        self.center_lon = center_lon
-        self.radius_km = radius_km
-        self.rate_per_hour = rate_per_hour
+        self.check_interval_seconds = check_interval_seconds
         self.running = False
+        
+        # Load the ML Predictor
+        self.predictor = CrimePredictor(confidence_threshold=0.90)
+        
+        # Track active alerts to prevent spamming the dispatch engine
+        # with the same neighborhood every loop.
+        self.active_predictions: set[str] = set()
 
     async def start(self) -> None:
-        """Start the generation loop."""
+        """Start the ML generation loop."""
         self.running = True
-        logger.info("emergency_generator_started", rate_per_hour=self.rate_per_hour)
-
-        tick_interval = 10.0  # check every 10 seconds
-        dt_hours = tick_interval / 3600.0
+        logger.info("predictive_generator_started", interval=self.check_interval_seconds)
 
         while self.running:
             try:
-                if self.rate_per_hour > 0:
-                    prob = 1.0 - math.exp(-self.rate_per_hour * dt_hours)
-                    if random.random() < prob:
-                        await self._generate_emergency()
+                await self._generate_predictive_emergencies()
             except Exception as e:
-                logger.error("emergency_generator_error", error=str(e), exc_info=True)
+                logger.error("predictive_generator_error", error=str(e), exc_info=True)
 
-            await asyncio.sleep(tick_interval)
+            await asyncio.sleep(self.check_interval_seconds)
 
     def stop(self) -> None:
         """Stop the generation loop."""
         self.running = False
-        logger.info("emergency_generator_stopped")
+        logger.info("predictive_generator_stopped")
 
-    async def _generate_emergency(self) -> None:
-        """Generate and submit a single random emergency."""
-        # Random location within radius
-        # Approximate 1 degree lat = 111 km
-        lat_offset = random.uniform(-self.radius_km, self.radius_km) / 111.0
-        lon_offset = random.uniform(-self.radius_km, self.radius_km) / (
-            111.0 * math.cos(math.radians(self.center_lat))
-        )
+    async def _generate_predictive_emergencies(self) -> None:
+        """Run inference and submit emergencies for high-risk areas."""
+        if not self.predictor.is_ready:
+            return
 
-        lat = self.center_lat + lat_offset
-        lon = self.center_lon + lon_offset
+        current_time = datetime.now()
+        recommendations = self.predictor.predict_current_risk(current_time)
 
-        em_type = random.choice(list(EmergencyType))
-        severity = random.choice(list(EmergencySeverity))
+        # Track which neighborhoods are currently in a high-risk state
+        current_high_risk_neighborhoods = {rec['neighborhood'] for rec in recommendations}
 
-        location = Location(latitude=lat, longitude=lon, timestamp=datetime.now(UTC))
+        # Clear out old predictions from our cache if they are no longer high-risk
+        self.active_predictions = self.active_predictions.intersection(current_high_risk_neighborhoods)
 
-        units_required = scale_units_by_severity(EMERGENCY_UNITS_DEFAULTS[em_type], severity)
+        for rec in recommendations:
+            neighborhood = rec['neighborhood']
+            
+            # Skip if we already dispatched units here recently
+            if neighborhood in self.active_predictions:
+                continue
 
-        emergency = Emergency(
-            emergency_type=em_type,
-            severity=severity,
-            location=location,
-            address=f"Lat {lat:.4f}, Lon {lon:.4f}",
-            description=f"Auto-generated {em_type.value} incident",
-            units_required=units_required,
-            reported_by="system_generator",
-        )
+            prob = rec['risk_probability']
+            
+            # Map the ML probability to AEGIS Severity Levels
+            # > 95% = CRITICAL (5), > 90% = SEVERE (4)
+            severity = EmergencySeverity.CRITICAL if prob > 0.95 else EmergencySeverity.SEVERE
 
-        logger.info("auto_generating_emergency", type=em_type.value, severity=severity.value)
+            # Create strict GPS Location object
+            location = Location(
+                latitude=rec['latitude'], 
+                longitude=rec['longitude'], 
+                timestamp=datetime.now(UTC)
+            )
 
-        # We need to process it through orchestrator.
-        # But wait, in API it calls `await orchestrator.process_emergency(emergency)`
-        # Then broadcasts to websocket.
-        # If we just do it here, we skip the websocket broadcast unless we pass a callback.
-        # Let's just process it.
-        await self.orchestrator.process_emergency(emergency)
+            # Define as a CRIME and calculate required units (Police)
+            em_type = EmergencyType.CRIME
+            units_required = scale_units_by_severity(EMERGENCY_UNITS_DEFAULTS[em_type], severity)
+
+            # Build the AEGIS Emergency model
+            emergency = Emergency(
+                emergency_type=em_type,
+                severity=severity,
+                location=location,
+                address=neighborhood,
+                description=f"AI Prediction: High risk of {rec['common_crime_type']} ({prob:.1%} confidence)",
+                units_required=units_required,
+                reported_by="ai_crime_predictor",
+            )
+
+            logger.info("ai_dispatching_emergency", neighborhood=neighborhood, probability=prob, severity=severity.value)
+
+            # Send to the dispatch engine
+            await self.orchestrator.process_emergency(emergency)
+            
+            # Mark as active so we don't spam it
+            self.active_predictions.add(neighborhood)

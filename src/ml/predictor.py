@@ -8,6 +8,7 @@ the model's ``predict_proba`` output rather than hardcoded constants.
 
 import os
 from datetime import UTC, datetime
+from typing import Any
 
 import joblib
 import numpy as np
@@ -169,3 +170,114 @@ class Predictor:
             },
         )
         return [alert]
+
+class CrimePredictor:
+    """Loads the trained crime model and predicts high-risk areas in real-time."""
+
+    def __init__(self, model_path: str = "src/ml/crime_model.joblib", confidence_threshold: float = 0.90):
+        """
+        Initialize the predictor by loading the trained artifacts.
+
+        Args:
+            model_path: Path to the .joblib file containing the model and scaler.
+            confidence_threshold: Minimum probability (0.0 to 1.0) to trigger an alert.
+        """
+        self.confidence_threshold = confidence_threshold
+        self.is_ready = False
+
+        try:
+            logger.info("loading_crime_model", path=model_path)
+            artifacts = joblib.load(model_path)
+            
+            self.model = artifacts['model']
+            self.scaler = artifacts['scaler']
+            self.extractor = artifacts['extractor']
+            self.neighborhood_stats = artifacts['neighborhood_stats']
+            
+            self.is_ready = True
+            logger.info("crime_model_loaded_successfully", neighborhoods=len(self.neighborhood_stats))
+            
+        except FileNotFoundError:
+            logger.error("crime_model_not_found", path=model_path)
+        except Exception as e:
+            logger.error("crime_model_load_error", error=str(e))
+
+    def predict_current_risk(self, current_time: datetime | None = None) -> list[dict[str, Any]]:
+        """
+        Evaluate all neighborhoods for crime risk at the given time.
+
+        Args:
+            current_time: The time to evaluate. Defaults to datetime.now().
+
+        Returns:
+            A list of high-risk neighborhoods with their predicted probability, 
+            GPS centroids, and most common crime types.
+        """
+        if not self.is_ready:
+            logger.warning("predictor_not_ready")
+            return []
+
+        if current_time is None:
+            current_time = datetime.now()
+
+        # Get base time features (hour, day, sine/cosine encodings)
+        time_features = self.extractor.create_time_features(current_time)
+        recommendations = []
+
+        # Evaluate each neighborhood
+        for neighborhood, stats in self.neighborhood_stats.items():
+            try:
+                # Combine time features with neighborhood-specific features
+                neighborhood_features = time_features.copy()
+                
+                # Add density
+                neighborhood_features['índice_densidad_poblacional'] = stats.get('avg_density', 0)
+                
+                # Add encoded economic level if it was part of the training features
+                if 'nivel_económico_cod' in self.extractor.feature_columns:
+                    economic_level = stats.get('economic_level', 'desconocido')
+                    if 'nivel_económico' in self.extractor.label_encoders:
+                        le = self.extractor.label_encoders['nivel_económico']
+                        try:
+                            # Transform returns an array, we need the first item
+                            eco_cod = le.transform([economic_level])[0]
+                            neighborhood_features['nivel_económico_cod'] = eco_cod
+                        except ValueError:
+                            # If the level wasn't seen during training
+                            neighborhood_features['nivel_económico_cod'] = 0
+
+                # Ensure features are in the exact order the model expects
+                features_list = []
+                for col in self.extractor.feature_columns:
+                    features_list.append(neighborhood_features.get(col, 0))
+
+                # Create a DataFrame for the scaler
+                features_df = pd.DataFrame([features_list], columns=self.extractor.feature_columns)
+                
+                # Scale features
+                features_scaled = self.scaler.transform(features_df)
+
+                # Predict probability
+                # predict_proba returns [[prob_class_0, prob_class_1]]
+                risk_proba = float(self.model.predict_proba(features_scaled)[0][1])
+
+                # Filter by threshold
+                if risk_proba >= self.confidence_threshold:
+                    common_crime = list(stats['crime_types'].keys())[0] if stats['crime_types'] else "desconocido"
+                    
+                    recommendations.append({
+                        'neighborhood': neighborhood,
+                        'risk_probability': risk_proba,
+                        'latitude': stats['centroid_lat'],
+                        'longitude': stats['centroid_lon'],
+                        'common_crime_type': common_crime
+                    })
+
+            except Exception as e:
+                logger.warning("prediction_error_for_neighborhood", neighborhood=neighborhood, error=str(e))
+                continue
+
+        # Sort by highest risk first
+        recommendations.sort(key=lambda x: x['risk_probability'], reverse=True)
+        
+        return recommendations
