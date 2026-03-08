@@ -60,3 +60,13 @@ class Vehicle(BaseModel):
             }
         }
     }
+
+
+class VehicleRegistration(BaseModel):
+    """Vehicle registration event emitted when an agent starts."""
+
+    vehicle_id: str
+    vehicle_type: VehicleType
+    fleet_id: str
+    operational_status: OperationalStatus = Field(default=OperationalStatus.IDLE)
+    timestamp: datetime

@@ -18,10 +18,10 @@ from src.models.emergency import (
     UnitsRequired,
 )
 from src.models.enums import AlertSeverity, FailureCategory, OperationalStatus, VehicleType
+from src.models.events import VehicleRegistrationEvent
 from src.models.telemetry import VehicleTelemetry
-from src.models.vehicle import Location
+from src.models.vehicle import Location, VehicleRegistration
 from src.orchestrator.agent import OrchestratorAgent
-from src.orchestrator.fleet_service import _infer_vehicle_type
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,10 +48,12 @@ def _make_telemetry_message(
     lon: float = -99.14,
     battery_voltage: float = 13.8,
     fuel_level: float = 75.0,
+    vehicle_type: VehicleType = VehicleType.AMBULANCE,
 ) -> VehicleTelemetry:
     """Build a VehicleTelemetry model."""
     return VehicleTelemetry(
         vehicle_id=vehicle_id,
+        vehicle_type=vehicle_type,
         timestamp=datetime.now(UTC),
         latitude=lat,
         longitude=lon,
@@ -78,35 +80,25 @@ def _make_emergency(
     )
 
 
-# ---------------------------------------------------------------------------
-# _infer_vehicle_type helper
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.unit
-class TestInferVehicleType:
-    """Tests for the vehicle ID prefix inference helper."""
+class TestVehicleRegistration:
+    """Tests for explicit vehicle registration events."""
 
-    def test_amb_prefix_returns_ambulance(self) -> None:
-        """AMB- prefix should return AMBULANCE."""
-        assert _infer_vehicle_type("AMB-001") == VehicleType.AMBULANCE
-
-    def test_fire_prefix_returns_fire_truck(self) -> None:
-        """FIRE- prefix should return FIRE_TRUCK."""
-        assert _infer_vehicle_type("FIRE-042") == VehicleType.FIRE_TRUCK
-
-    def test_pol_prefix_returns_police(self) -> None:
-        """POL- prefix should return POLICE."""
-        assert _infer_vehicle_type("POL-003") == VehicleType.POLICE
-
-    def test_unknown_prefix_defaults_to_ambulance(self) -> None:
-        """Unknown prefix should default to AMBULANCE."""
-        assert _infer_vehicle_type("UNKNOWN-999") == VehicleType.AMBULANCE
-
-    def test_case_insensitive(self) -> None:
-        """Inference should be case-insensitive."""
-        assert _infer_vehicle_type("amb-001") == VehicleType.AMBULANCE
-        assert _infer_vehicle_type("fire-001") == VehicleType.FIRE_TRUCK
+    @pytest.mark.asyncio
+    async def test_registration_creates_snapshot(self) -> None:
+        """Vehicle registration should pre-create fleet snapshot."""
+        orch = _make_orchestrator()
+        event = VehicleRegistrationEvent(
+            payload=VehicleRegistration(
+                vehicle_id="POL-123",
+                vehicle_type=VehicleType.POLICE,
+                fleet_id="fleet01",
+                timestamp=datetime.now(UTC),
+            )
+        )
+        await orch._handle_vehicle_registration(event)
+        assert "POL-123" in orch.fleet
+        assert orch.fleet["POL-123"].vehicle_type == VehicleType.POLICE
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from src.models.alerts import PredictiveAlert
 from src.models.dispatch import Dispatch
 from src.models.emergency import Emergency, EmergencyStatus
 from src.models.enums import OperationalStatus
+from src.models.events import VehicleRegistrationEvent
 from src.models.telemetry import VehicleTelemetry
 from src.orchestrator.emergency_service import EmergencyService
 from src.orchestrator.fleet_service import FleetService
@@ -35,6 +36,7 @@ TELEMETRY_PATTERN = "aegis:*:telemetry:*"
 ALERTS_PATTERN = "aegis:*:alerts:*"
 ALERTS_CLEARED_PATTERN = "aegis:*:alerts_cleared:*"
 EMERGENCY_CHANNEL = "aegis:emergencies:new"
+VEHICLE_REGISTER_PATTERN = "aegis:*:vehicles:register"
 DISPATCH_CHANNEL_PREFIX = "aegis:dispatch"
 
 # How often the background sweeper runs (seconds).
@@ -161,6 +163,7 @@ class OrchestratorAgent:
                 ALERTS_PATTERN,
                 ALERTS_CLEARED_PATTERN,
                 EMERGENCY_CHANNEL,
+                VEHICLE_REGISTER_PATTERN,
             ):
                 if not self.running:
                     break
@@ -191,6 +194,9 @@ class OrchestratorAgent:
             if "telemetry" in channel:
                 telemetry = VehicleTelemetry.model_validate_json(data)
                 await self._handle_telemetry(telemetry)
+            elif "vehicles:register" in channel:
+                registration = VehicleRegistrationEvent.model_validate_json(data)
+                await self._handle_vehicle_registration(registration)
             elif "alerts_cleared" in channel:
                 await self._handle_alert_cleared(data)
             elif "alerts" in channel:
@@ -268,6 +274,25 @@ class OrchestratorAgent:
                         "timestamp": telemetry.timestamp.isoformat(),
                     },
                 )
+            )
+
+    async def _handle_vehicle_registration(self, event: VehicleRegistrationEvent) -> None:
+        """Register vehicle metadata from explicit agent registration events."""
+        payload = event.payload
+        is_new, _snapshot = self.fleet_service.register_vehicle(
+            payload.vehicle_id,
+            payload.vehicle_type,
+            payload.operational_status,
+        )
+        if is_new:
+            logger.info(
+                "vehicle_registration_received",
+                vehicle_id=payload.vehicle_id,
+                vehicle_type=payload.vehicle_type.value,
+            )
+        if db.engine is not None:
+            asyncio.create_task(
+                self._persist_vehicle(payload.vehicle_id, payload.vehicle_type.value, "active")
             )
 
     async def _persist_vehicle(self, vehicle_id: str, vehicle_type: str, status: str) -> None:

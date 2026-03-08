@@ -19,7 +19,9 @@ from src.infrastructure.redis_bus import RedisMessageBus
 from src.ml.predictor import Predictor
 from src.models.alerts import PredictiveAlert
 from src.models.enums import OperationalStatus
+from src.models.events import VehicleRegistrationEvent
 from src.models.telemetry import VehicleTelemetry
+from src.models.vehicle import VehicleRegistration
 from src.vehicle_agent.anomaly_detector import AnomalyDetector
 from src.vehicle_agent.config import AgentConfig
 from src.vehicle_agent.failure_injector import FailureInjector
@@ -126,6 +128,8 @@ class VehicleAgent:
         # Connect to message bus
         await self._bus.connect()
         self._bus_connected = True
+
+        await self._publish_registration()
 
         self.running = True
 
@@ -445,6 +449,27 @@ class VehicleAgent:
         except Exception as exc:
             logger.error(
                 "telemetry_publish_failed",
+                vehicle_id=self.config.vehicle_id,
+                error=str(exc),
+            )
+
+    async def _publish_registration(self) -> None:
+        """Publish vehicle metadata so orchestrator does not infer from IDs."""
+        channel = f"aegis:{self.config.fleet_id}:vehicles:register"
+        event = VehicleRegistrationEvent(
+            payload=VehicleRegistration(
+                vehicle_id=self.config.vehicle_id,
+                vehicle_type=self.config.vehicle_type,
+                fleet_id=self.config.fleet_id,
+                operational_status=self.operational_status,
+                timestamp=self.clock.now(),
+            )
+        )
+        try:
+            await self._bus.publish(channel, event.model_dump_json())
+        except Exception as exc:
+            logger.error(
+                "vehicle_registration_publish_failed",
                 vehicle_id=self.config.vehicle_id,
                 error=str(exc),
             )

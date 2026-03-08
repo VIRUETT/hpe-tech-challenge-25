@@ -11,26 +11,6 @@ from src.models.vehicle import Location
 logger = structlog.get_logger(__name__)
 
 
-def _infer_vehicle_type(vehicle_id: str) -> VehicleType:
-    """Infer vehicle type from vehicle_id prefix convention.
-
-    Args:
-        vehicle_id: Vehicle identifier (e.g. AMB-001, FIRE-002, POL-003).
-
-    Returns:
-        Best-guess VehicleType, defaults to AMBULANCE if unknown.
-    """
-    vid = vehicle_id.upper()
-    if vid.startswith("AMB"):
-        return VehicleType.AMBULANCE
-    if vid.startswith("FIR") or vid.startswith("FIRE"):
-        return VehicleType.FIRE_TRUCK
-    if vid.startswith("POL"):
-        return VehicleType.POLICE
-    logger.warning("unknown_vehicle_id_prefix", vehicle_id=vehicle_id)
-    return VehicleType.AMBULANCE
-
-
 class FleetService:
     def __init__(self) -> None:
         self.fleet: dict[str, VehicleStatusSnapshot] = {}
@@ -50,7 +30,9 @@ class FleetService:
         snap = self.fleet.get(vehicle_id)
         if snap is None:
             is_new = True
-            vehicle_type = telemetry.vehicle_type or _infer_vehicle_type(vehicle_id)
+            vehicle_type = telemetry.vehicle_type
+            if vehicle_type is None:
+                raise ValueError("Vehicle type is required for new vehicle registration")
             snap = VehicleStatusSnapshot.model_validate(
                 {
                     "vehicle_id": vehicle_id,
@@ -91,6 +73,31 @@ class FleetService:
         )
 
         return is_new, vehicle_type, snap
+
+    def register_vehicle(
+        self,
+        vehicle_id: str,
+        vehicle_type: VehicleType,
+        status: OperationalStatus = OperationalStatus.IDLE,
+    ) -> tuple[bool, VehicleStatusSnapshot]:
+        """Register vehicle metadata before first telemetry arrives."""
+        existing = self.fleet.get(vehicle_id)
+        if existing is not None:
+            existing.vehicle_type = vehicle_type
+            existing.operational_status = status
+            existing.last_seen_at = datetime.now(UTC)
+            return False, existing
+
+        snapshot = VehicleStatusSnapshot.model_validate(
+            {
+                "vehicle_id": vehicle_id,
+                "vehicle_type": vehicle_type,
+                "operational_status": status,
+            }
+        )
+        snapshot.last_seen_at = datetime.now(UTC)
+        self.fleet[vehicle_id] = snapshot
+        return True, snapshot
 
     def handle_alert(self, alert: PredictiveAlert) -> None:
         """Update vehicle state to reflect an active alert."""
