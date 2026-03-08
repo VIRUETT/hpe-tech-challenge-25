@@ -97,7 +97,15 @@ class TestEmergencyStatus:
 
     def test_lifecycle_states_exist(self) -> None:
         """Verify lifecycle states are defined."""
-        expected = {"pending", "dispatching", "dispatched", "in_progress", "resolved", "cancelled"}
+        expected = {
+            "pending",
+            "dispatching",
+            "dispatched",
+            "in_progress",
+            "resolved",
+            "cancelled",
+            "dismissed",
+        }
         actual = {es.value for es in EmergencyStatus}
         assert actual == expected
 

@@ -208,7 +208,7 @@ def _render_folium_map(
     # --- Emergency markers ---
     if emergencies:
         for e in emergencies:
-            if e.get("status") == "resolved":
+            if e.get("status") in {"resolved", "cancelled", "dismissed"}:
                 continue
 
             has_any_marker = True
@@ -416,7 +416,10 @@ def main() -> None:
     with col_list:
         st.subheader("Active Scenarios & Crimes")
         if emergencies:
-            active_emergencies = [e for e in emergencies if e.get("status") != "resolved"]
+            inactive_statuses = {"resolved", "cancelled", "dismissed"}
+            active_emergencies = [
+                e for e in emergencies if e.get("status") not in inactive_statuses
+            ]
             if active_emergencies:
                 for e in active_emergencies:
                     with st.expander(

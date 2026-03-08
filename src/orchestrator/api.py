@@ -78,6 +78,7 @@ class EmergencyResponse(BaseModel):
     created_at: datetime
     dispatched_at: datetime | None
     resolved_at: datetime | None
+    dismissed_at: datetime | None
     dispatch_id: str | None
     assigned_vehicles: list[str]
 
@@ -444,8 +445,8 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
         emergency = orchestrator.emergencies.get(emergency_id)
         if not emergency:
             raise HTTPException(status_code=404, detail="Emergency not found")
-        if emergency.status == EmergencyStatus.RESOLVED:
-            raise HTTPException(status_code=409, detail="Emergency already resolved")
+        if emergency.status in (EmergencyStatus.RESOLVED, EmergencyStatus.DISMISSED):
+            raise HTTPException(status_code=409, detail="Emergency already closed")
 
         released = await orchestrator.resolve_emergency(emergency_id)
 
@@ -515,6 +516,7 @@ def _emergency_to_dict(
         "created_at": emergency.created_at.isoformat(),
         "dispatched_at": (emergency.dispatched_at.isoformat() if emergency.dispatched_at else None),
         "resolved_at": (emergency.resolved_at.isoformat() if emergency.resolved_at else None),
+        "dismissed_at": (emergency.dismissed_at.isoformat() if emergency.dismissed_at else None),
         "dispatch_id": dispatch.dispatch_id if dispatch else None,
         "assigned_vehicles": dispatch.vehicle_ids if dispatch else [],
     }

@@ -8,7 +8,7 @@ from src.orchestrator.dispatch_engine import DispatchEngine
 
 # Emergencies that stay in DISPATCHING longer than this are cancelled (no units found).
 EMERGENCY_DISPATCH_TIMEOUT_MINUTES = 10
-# Emergencies that stay DISPATCHED/IN_PROGRESS longer than this are auto-resolved.
+# Emergencies that stay DISPATCHED/IN_PROGRESS longer than this are auto-dismissed.
 EMERGENCY_MAX_DURATION_MINUTES = 30
 
 
@@ -56,6 +56,17 @@ class EmergencyService:
         # Release units via the Dispatch Engine
         return self.dispatch_engine.release_units(emergency_id)
 
+    def dismiss_emergency(self, emergency_id: str) -> list[str]:
+        """Mark an emergency as dismissed and release its units back to IDLE."""
+        if emergency_id not in self.emergencies:
+            raise KeyError(f"Emergency {emergency_id} not found.")
+
+        emergency = self.emergencies[emergency_id]
+        emergency.status = EmergencyStatus.DISMISSED
+        emergency.dismissed_at = datetime.now(UTC)
+
+        return self.dispatch_engine.release_units(emergency_id)
+
     def get_dispatching_emergencies(self) -> list[Emergency]:
         """
         Return a list of emergencies that are waiting for available units.
@@ -65,10 +76,10 @@ class EmergencyService:
     def evaluate_stale_emergencies(self) -> tuple[list[Emergency], list[Emergency]]:
         """
         Evaluate emergencies for timeout rules.
-        Returns two lists: (emergencies_to_cancel, emergencies_to_resolve)
+        Returns two lists: (emergencies_to_cancel, emergencies_to_dismiss)
         """
         to_cancel = []
-        to_resolve = []
+        to_dismiss = []
         now = datetime.now(UTC)
 
         for emergency in self.emergencies.values():
@@ -81,6 +92,6 @@ class EmergencyService:
 
             elif emergency.status in (EmergencyStatus.DISPATCHED, EmergencyStatus.IN_PROGRESS):
                 if age_minutes >= EMERGENCY_MAX_DURATION_MINUTES:
-                    to_resolve.append(emergency)
+                    to_dismiss.append(emergency)
 
-        return to_cancel, to_resolve
+        return to_cancel, to_dismiss

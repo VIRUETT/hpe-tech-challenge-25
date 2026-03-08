@@ -356,13 +356,16 @@ class TestOrchestratorFleetSummary:
         assert summary["available_vehicles"] == 1
 
     def test_active_emergencies_count(self) -> None:
-        """active_emergencies should count non-resolved, non-cancelled emergencies."""
+        """active_emergencies should exclude resolved/cancelled/dismissed emergencies."""
         orch = _make_orchestrator()
         e1 = _make_emergency()
         e2 = _make_emergency()
+        e3 = _make_emergency()
         e2.status = EmergencyStatus.RESOLVED
+        e3.status = EmergencyStatus.DISMISSED
         orch.emergencies[e1.emergency_id] = e1
         orch.emergencies[e2.emergency_id] = e2
+        orch.emergencies[e3.emergency_id] = e3
 
         summary = orch.get_fleet_summary()
         assert summary["active_emergencies"] == 1
