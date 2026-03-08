@@ -393,6 +393,100 @@ services:
           memory: 256M
 
   # -------------------------------------------------------------------------
+  # Vehicle Agent 6 - Police (POL-002)
+  # -------------------------------------------------------------------------
+  vehicle-agent-6:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: aegis-vehicle-pol-002
+    restart: unless-stopped
+    command:
+      [
+        "python",
+        "-m",
+        "src.scripts.start_vehicle",
+        "--vehicle-id",
+        "POL-002",
+        "--vehicle-type",
+        "police",
+        "--redis-host",
+        "redis",
+        "--latitude",
+        "37.7810",
+        "--longitude",
+        "-122.4140",
+      ]
+    environment:
+      AEGIS_ENV: production
+      VEHICLE_ID: POL-002
+      VEHICLE_TYPE: police
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TELEMETRY_INTERVAL: 5
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # Vehicle Agent 7 - Police (POL-003)
+  # -------------------------------------------------------------------------
+  vehicle-agent-7:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: aegis-vehicle-pol-003
+    restart: unless-stopped
+    command:
+      [
+        "python",
+        "-m",
+        "src.scripts.start_vehicle",
+        "--vehicle-id",
+        "POL-003",
+        "--vehicle-type",
+        "police",
+        "--redis-host",
+        "redis",
+        "--latitude",
+        "37.7580",
+        "--longitude",
+        "-122.4290",
+      ]
+    environment:
+      AEGIS_ENV: production
+      VEHICLE_ID: POL-003
+      VEHICLE_TYPE: police
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TELEMETRY_INTERVAL: 5
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+
+  # -------------------------------------------------------------------------
   # Dashboard - Web UI for Real-time Visualization (Streamlit)
   # -------------------------------------------------------------------------
   dashboard:

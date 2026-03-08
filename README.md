@@ -74,7 +74,7 @@ uv run aegis-vehicle --vehicle-id AMB-001 --vehicle-type ambulance
 Run fleet simulation:
 
 ```bash
-uv run aegis-fleet --ambulances 2 --fire-trucks 1 --police 1
+uv run aegis-fleet --ambulances 2 --fire-trucks 1 --police 3
 ```
 
 Run dashboard:

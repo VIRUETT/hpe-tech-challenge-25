@@ -1,6 +1,6 @@
-from datetime import datetime
 import os
 import time
+from datetime import datetime
 
 import folium
 import pandas as pd
@@ -114,6 +114,7 @@ def _vehicle_icon(status: str, has_alert: bool) -> tuple[str, str]:
 def _render_folium_map(
     fleet_data: dict | None,
     emergencies: list | None,
+    predictions: list | None,
     *,
     center: list[float] | None = None,
     zoom: int = 13,
@@ -127,6 +128,7 @@ def _render_folium_map(
     Args:
         fleet_data: JSON payload from GET /fleet, or None if unavailable.
         emergencies: JSON list from GET /emergencies, or None if unavailable.
+        predictions: JSON list from GET /crime-predictions, or None if unavailable.
         center: Map center [lat, lon]. Defaults to SF center if None.
         zoom: Initial zoom level.
     """
@@ -216,20 +218,11 @@ def _render_folium_map(
             etype = e.get("emergency_type", "unknown").replace("_", " ").title()
             description = e.get("description", "")
 
-            # Check if this is an AI-generated predictive crime or and actual crime
-            description = e.get("description", "")
-            is_ai_prediction = "AI Prediction" in description
-            is_historical = "ACTUAL CRIME" in description
-
-            # Customize the marker color and icon
-            if is_historical:
+            # Customize marker style by emergency source/type
+            if "ACTUAL CRIME" in description:
                 marker_color = "red"
                 marker_icon = "fire"
                 tooltip_icon = "🔥 CRIME"
-            elif is_ai_prediction:
-                marker_color = "darkpurple"
-                marker_icon = "eye-open"
-                tooltip_icon = "👁️ AI"
             else:
                 marker_color = "orange"
                 marker_icon = "exclamation-sign"
@@ -248,6 +241,40 @@ def _render_folium_map(
                 popup=folium.Popup(popup_html, max_width=260),
                 tooltip=f"{tooltip_icon} {etype} (sev {severity})",
                 icon=folium.Icon(color=marker_color, icon=marker_icon, prefix="glyphicon"),
+            ).add_to(fmap)
+
+    # --- Prediction markers ---
+    if predictions:
+        for prediction in predictions:
+            lat = prediction.get("latitude")
+            lon = prediction.get("longitude")
+            if lat is None or lon is None:
+                continue
+
+            has_any_marker = True
+            neighborhood = prediction.get("neighborhood", "Unknown area")
+            crime_type = (
+                str(prediction.get("predicted_crime_type", "unknown")).replace("_", " ").title()
+            )
+            probability = float(prediction.get("risk_probability", 0.0))
+            severity = prediction.get("severity", "warning")
+
+            marker_color = "darkpurple" if severity == "critical" else "blue"
+            tooltip_icon = "👁️ AI"
+            popup_html = (
+                f"<b>{tooltip_icon} Prediction</b><br>"
+                f"Neighborhood: <b>{neighborhood}</b><br>"
+                f"Crime Type: <b>{crime_type}</b><br>"
+                f"Risk: <b>{probability:.0%}</b><br>"
+                f"Severity: <b>{severity}</b><br>"
+                f"Description: {prediction.get('description', 'N/A')}"
+            )
+
+            folium.Marker(
+                location=[lat, lon],
+                popup=folium.Popup(popup_html, max_width=280),
+                tooltip=f"{tooltip_icon} {neighborhood} ({probability:.0%})",
+                icon=folium.Icon(color=marker_color, icon="eye-open", prefix="glyphicon"),
             ).add_to(fmap)
 
     if not has_any_marker:
@@ -409,6 +436,7 @@ def main() -> None:
         _render_folium_map(
             fleet_data,
             emergencies,
+            predictions,
             center=st.session_state.map_center,
             zoom=st.session_state.map_zoom,
         )
@@ -450,9 +478,18 @@ def main() -> None:
             for e in sorted_em[:10]:
                 created = str(e.get("created_at", ""))[:19].replace("T", " ")
                 status = e.get("status", "unknown")
-                icon = "✅" if status == "resolved" else ("🚨" if status == "pending" else "🚙")
+                icon_map = {
+                    "resolved": "✅",
+                    "dismissed": "📴",
+                    "cancelled": "⛔",
+                    "pending": "🚨",
+                }
+                icon = icon_map.get(status, "🚙")
                 st.markdown(f"**{created}** {icon} {e['emergency_type'].upper()} ({status})")
-                if e.get("dispatched_at") and status != "resolved":
+                if status == "dismissed" and e.get("dismissed_at"):
+                    dismissed_at = str(e.get("dismissed_at", ""))[:19].replace("T", " ")
+                    st.text(f"    → dismissed at {dismissed_at}")
+                if e.get("dispatched_at") and status not in {"resolved", "dismissed", "cancelled"}:
                     st.text(f"    → {len(e.get('assigned_vehicles', []))} units dispatched")
         else:
             st.info("No timeline events yet.")

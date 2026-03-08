@@ -161,7 +161,7 @@ def _build_vehicle_agents(configs: list[AgentConfig]) -> list[VehicleAgent]:
 )
 @click.option(
     "--police",
-    default=1,
+    default=3,
     type=int,
     show_default=True,
     help="Number of police agents to spawn.",
@@ -250,7 +250,7 @@ def main(
     Examples:
 
         \\b
-        # Default fleet: 2 ambulances, 1 fire truck, 1 police unit
+        # Default fleet: 2 ambulances, 1 fire truck, 3 police units
         aegis-fleet
 
         \\b

@@ -83,6 +83,11 @@ class EmergencyService:
         now = datetime.now(UTC)
 
         for emergency in self.emergencies.values():
+            # Historical playback emergencies are lifecycle-managed by
+            # HistoricalCrimeInjector using simulated-time rules.
+            if emergency.reported_by == "historical_playback":
+                continue
+
             age_minutes = (now - emergency.created_at).total_seconds() / 60.0
 
             if emergency.status == EmergencyStatus.DISPATCHING:

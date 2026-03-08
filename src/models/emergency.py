@@ -83,7 +83,7 @@ class UnitsRequired(BaseModel):
 EMERGENCY_UNITS_DEFAULTS: dict[EmergencyType, UnitsRequired] = {
     EmergencyType.MEDICAL: UnitsRequired(ambulances=1),
     EmergencyType.FIRE: UnitsRequired(ambulances=1, fire_trucks=2),
-    EmergencyType.CRIME: UnitsRequired(police=2),
+    EmergencyType.CRIME: UnitsRequired(police=1),
     EmergencyType.ACCIDENT: UnitsRequired(ambulances=2, police=1),
     EmergencyType.HAZMAT: UnitsRequired(ambulances=1, fire_trucks=2, police=1),
     EmergencyType.RESCUE: UnitsRequired(ambulances=1, fire_trucks=1),
