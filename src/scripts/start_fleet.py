@@ -13,6 +13,8 @@ import sys
 import click
 import structlog
 
+from src.core.time import RealClock
+from src.infrastructure.redis_bus import RedisMessageBus
 from src.models.enums import VehicleType
 from src.vehicle_agent.agent import VehicleAgent
 from src.vehicle_agent.config import AgentConfig
@@ -119,6 +121,20 @@ async def _run_fleet(agents: list[VehicleAgent]) -> None:
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _build_vehicle_agents(configs: list[AgentConfig]) -> list[VehicleAgent]:
+    """Build vehicle agents with explicit dependency wiring."""
+    agents: list[VehicleAgent] = []
+    for cfg in configs:
+        bus = RedisMessageBus(
+            host=cfg.redis_host,
+            port=cfg.redis_port,
+            password=cfg.redis_password,
+            db=cfg.redis_db,
+        )
+        agents.append(VehicleAgent(cfg, message_bus=bus, clock=RealClock()))
+    return agents
 
 
 @click.command()
@@ -241,7 +257,7 @@ def main(
                 )
             )
 
-    agents = [VehicleAgent(cfg) for cfg in all_configs]
+    agents = _build_vehicle_agents(all_configs)
 
     click.echo("🚨 Project AEGIS - Fleet Simulation")
     click.echo(f"   Fleet ID    : {fleet_id}")

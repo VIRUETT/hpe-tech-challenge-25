@@ -58,6 +58,11 @@ def test_en_route_vehicle_stays_inside_boundary() -> None:
     """Bound: EN_ROUTE vehicle heading to in-city target stays inside box."""
 
 
+@scenario(FEATURE, "EN_ROUTE vehicle moving toward target outside boundary stays within SF")
+def test_en_route_vehicle_outside_target_stays_within_boundary() -> None:
+    """Bound: EN_ROUTE vehicle heading toward out-of-bounds target stays inside SF."""
+
+
 @scenario(FEATURE, "Stopped vehicle position is unchanged regardless of boundary")
 def test_stopped_vehicle_position_unchanged() -> None:
     """Bound: stopped vehicle position is not mutated by the generator."""

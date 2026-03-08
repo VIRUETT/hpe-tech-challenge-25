@@ -18,6 +18,7 @@ from src.models.emergency import (
     scale_units_by_severity,
 )
 from src.orchestrator.agent import OrchestratorAgent
+from src.vehicle_agent.config import SF_LAT_MAX, SF_LAT_MIN, SF_LON_MAX, SF_LON_MIN
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +86,9 @@ class EmergencyGenerator:
 
         lat = self.center_lat + lat_offset
         lon = self.center_lon + lon_offset
+        # Clamp to SF operating box so dispatches stay within vehicle boundaries
+        lat = max(SF_LAT_MIN, min(SF_LAT_MAX, lat))
+        lon = max(SF_LON_MIN, min(SF_LON_MAX, lon))
 
         em_type = random.choice(list(EmergencyType))
         severity = random.choice(list(EmergencySeverity))

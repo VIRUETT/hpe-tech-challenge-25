@@ -11,6 +11,8 @@ import sys
 import click
 import structlog
 
+from src.core.time import RealClock
+from src.infrastructure.redis_bus import RedisMessageBus
 from src.models.enums import VehicleType
 from src.vehicle_agent.agent import VehicleAgent
 from src.vehicle_agent.config import AgentConfig
@@ -131,7 +133,13 @@ def main(
         sys.exit(1)
 
     # Create and run agent
-    agent = VehicleAgent(config)
+    bus = RedisMessageBus(
+        host=config.redis_host,
+        port=config.redis_port,
+        password=config.redis_password,
+        db=config.redis_db,
+    )
+    agent = VehicleAgent(config, message_bus=bus, clock=RealClock())
 
     click.echo("🚑 Project AEGIS - Vehicle Agent")
     click.echo(f"   Vehicle ID: {vehicle_id}")

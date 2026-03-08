@@ -2,8 +2,14 @@
 
 import pytest
 
-from src.models.enums import VehicleType
-from src.vehicle_agent.config import AgentConfig
+from src.models.enums import OperationalStatus, VehicleType
+from src.vehicle_agent.config import (
+    SF_LAT_MAX,
+    SF_LAT_MIN,
+    SF_LON_MAX,
+    SF_LON_MIN,
+    AgentConfig,
+)
 from src.vehicle_agent.telemetry_generator import SimpleTelemetryGenerator
 
 
@@ -84,3 +90,20 @@ class TestSimpleTelemetryGenerator:
         assert telemetry.engine_temp_celsius is not None
         assert telemetry.battery_voltage is not None
         assert telemetry.fuel_level_percent is not None
+
+    def test_en_route_toward_out_of_bounds_target_stays_within_sf(self) -> None:
+        """EN_ROUTE vehicle moving toward target outside SF stays within boundary."""
+        config = AgentConfig(
+            vehicle_id="AMB-001",
+            vehicle_type=VehicleType.AMBULANCE,
+            initial_latitude=37.7749,
+            initial_longitude=-122.4194,
+            initial_status=OperationalStatus.EN_ROUTE,
+        )
+        gen = SimpleTelemetryGenerator(config)
+        # Target south-west of SF (outside or near boundary)
+        gen.set_target_location(37.72, -122.52)
+        for _ in range(150):
+            gen.generate(OperationalStatus.EN_ROUTE)
+        assert SF_LAT_MIN <= gen.current_latitude <= SF_LAT_MAX
+        assert SF_LON_MIN <= gen.current_longitude <= SF_LON_MAX

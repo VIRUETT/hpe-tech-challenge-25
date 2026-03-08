@@ -7,10 +7,10 @@ Phase 1: Constant baseline values with Gaussian noise, differentiated per vehicl
 
 import math
 import random
-from datetime import UTC, datetime
 
 import structlog
 
+from src.core.time import Clock, RealClock
 from src.models.enums import OperationalStatus
 from src.models.telemetry import VehicleTelemetry
 from src.vehicle_agent.config import (
@@ -35,7 +35,7 @@ class SimpleTelemetryGenerator:
     failure patterns.
     """
 
-    def __init__(self, config: AgentConfig) -> None:
+    def __init__(self, config: AgentConfig, clock: Clock | None = None) -> None:
         """
         Initialize telemetry generator.
 
@@ -43,6 +43,7 @@ class SimpleTelemetryGenerator:
             config: Agent configuration containing vehicle identity and initial state
         """
         self.config = config
+        self.clock = clock or RealClock()
 
         # State variables for movement
         self.current_latitude = config.initial_latitude
@@ -86,7 +87,8 @@ class SimpleTelemetryGenerator:
         # Generate telemetry with noise
         telemetry = VehicleTelemetry(
             vehicle_id=self.config.vehicle_id,
-            timestamp=datetime.now(UTC),
+            vehicle_type=self.config.vehicle_type,
+            timestamp=self.clock.now(),
             latitude=self.current_latitude,
             longitude=self.current_longitude,
             speed_kmh=self.current_speed_kmh,
@@ -180,16 +182,17 @@ class SimpleTelemetryGenerator:
         self.current_longitude = math.degrees(new_lon)
         self.heading_degrees = math.degrees(bearing)
 
-        # Keep IDLE vehicles within the San Francisco city boundary
-        if status == OperationalStatus.IDLE:
+        # Keep IDLE and EN_ROUTE vehicles within the San Francisco operating area
+        if status in (OperationalStatus.IDLE, OperationalStatus.EN_ROUTE):
             self._apply_sf_boundary()
 
         # Update odometer
         self.baselines["odometer_km"] += distance_to_move
 
     def _apply_sf_boundary(self) -> None:
-        """Reflect heading and clamp position when an IDLE vehicle crosses the SF boundary.
+        """Reflect heading and clamp position when a vehicle crosses the SF boundary.
 
+        Used for both IDLE and EN_ROUTE so vehicles never leave the operating area.
         When the vehicle exits the bounding box along the latitude axis, the
         north/south component of the heading is inverted (horizontal mirror).
         When it exits along the longitude axis, the east/west component is

@@ -44,6 +44,13 @@ Feature: Vehicle geographic boundary enforcement
     Then the vehicle latitude should always be between 37.708 and 37.833
     And the vehicle longitude should always be between -122.527 and -122.349
 
+  Scenario: EN_ROUTE vehicle moving toward target outside boundary stays within SF
+    Given an EN_ROUTE vehicle positioned at latitude 37.7749 and longitude -122.4194
+    And the vehicle has a dispatch target at latitude 37.72 and longitude -122.52
+    When the vehicle generates 150 telemetry ticks
+    Then the vehicle latitude should always be between 37.708 and 37.833
+    And the vehicle longitude should always be between -122.527 and -122.349
+
   Scenario: Stopped vehicle position is unchanged regardless of boundary
     Given a vehicle with status ON_SCENE positioned at latitude 37.7749 and longitude -122.4194
     When the vehicle generates 5 telemetry ticks

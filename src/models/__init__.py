@@ -28,12 +28,13 @@ from .enums import (
     OperationalStatus,
     VehicleType,
 )
+from .events import VehicleRegistrationEvent
 
 # Telemetry models
 from .telemetry import VehicleTelemetry
 
 # Vehicle models
-from .vehicle import Location, Vehicle
+from .vehicle import Location, Vehicle, VehicleRegistration
 
 __all__ = [
     # Enums
@@ -56,6 +57,8 @@ __all__ = [
     # Vehicle
     "Location",
     "Vehicle",
+    "VehicleRegistration",
+    "VehicleRegistrationEvent",
     # Telemetry
     "VehicleTelemetry",
     # Alerts

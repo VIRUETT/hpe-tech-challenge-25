@@ -104,6 +104,7 @@ class DispatchEngine:
                     DispatchedUnit(
                         vehicle_id=snap.vehicle_id,
                         vehicle_type=snap.vehicle_type,
+                        acknowledged_at=None,
                     )
                 )
                 # Mark as dispatched in the shared fleet state
@@ -121,6 +122,7 @@ class DispatchEngine:
             emergency_id=emergency.emergency_id,
             units=selected_units,
             selection_criteria="nearest_available",
+            completed_at=None,
         )
 
         logger.info(

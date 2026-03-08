@@ -1,11 +1,10 @@
 # src/orchestrator/services/emergency_service.py
 
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 
 from src.models.dispatch import Dispatch, VehicleStatusSnapshot
 from src.models.emergency import Emergency, EmergencyStatus
 from src.orchestrator.dispatch_engine import DispatchEngine
-
 
 # Emergencies that stay in DISPATCHING longer than this are cancelled (no units found).
 EMERGENCY_DISPATCH_TIMEOUT_MINUTES = 10
@@ -20,7 +19,7 @@ class EmergencyService:
         """
         self.emergencies: dict[str, Emergency] = {}
         self.dispatches: dict[str, Dispatch] = {}
-        
+
         # Fleet reference to select units
         self.dispatch_engine = DispatchEngine(fleet)
 
@@ -40,7 +39,7 @@ class EmergencyService:
             emergency.dispatched_at = datetime.now(UTC)
         else:
             emergency.status = EmergencyStatus.DISPATCHING
-            
+
         return dispatch
 
     def resolve_emergency(self, emergency_id: str) -> list[str]:
@@ -61,10 +60,7 @@ class EmergencyService:
         """
         Return a list of emergencies that are waiting for available units.
         """
-        return [
-            e for e in self.emergencies.values() 
-            if e.status == EmergencyStatus.DISPATCHING
-        ]
+        return [e for e in self.emergencies.values() if e.status == EmergencyStatus.DISPATCHING]
 
     def evaluate_stale_emergencies(self) -> tuple[list[Emergency], list[Emergency]]:
         """

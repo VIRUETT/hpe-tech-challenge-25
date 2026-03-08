@@ -1,433 +1,112 @@
 # Data Architecture - Project AEGIS
 
-**Version:** 1.0.0  
-**Last Updated:** 2026-02-10  
-**Status:** Design Complete, Implementation Starting
+**Version:** 2.0.0
+**Status:** Implemented (POC with refactored boundaries)
+**Last Updated:** 2026-03-08
 
----
+## Overview
 
-## 🎯 Overview
+AEGIS models emergency fleets as autonomous vehicle agents coordinated by a central orchestrator.
+The architecture now separates:
 
-Project AEGIS uses a **digital twin architecture** where each emergency vehicle is represented by an autonomous software agent that:
+- runtime control (agents + orchestrator),
+- transport (message bus),
+- time source (clock abstraction),
+- persistence side effects (sinks/persisters).
 
-- Generates high-frequency telemetry data (1 Hz)
-- Performs local health monitoring
-- Communicates with a central orchestrator
-- Makes local decisions while deferring critical decisions to the orchestrator
+## Code-Level Architecture
 
----
+### Core Contracts (`src/core/`)
 
-## 📊 Data Model Architecture
+- `time.py`
+  - `Clock`
+  - `RealClock`
+  - `FastForwardClock` (test acceleration)
+- `messaging.py`
+  - `MessageBus`
+  - `BusMessage`
+- `persistence.py`
+  - `TelemetrySink`
+  - `AlertSink`
 
-### 1. Core Entities
+### Infrastructure (`src/infrastructure/`)
 
-#### Vehicle Identity
+- `redis_bus.py` -> production transport
+- `in_memory_bus.py` -> deterministic E2E transport
 
-Static information about each vehicle in the fleet.
+### Domain + Runtime
 
-**Fields:**
+- `src/vehicle_agent/agent.py`
+  - emits registration, telemetry, alerts
+  - consumes dispatch/resolve commands
+- `src/orchestrator/agent.py`
+  - consumes registration, telemetry, alerts, clear events
+  - dispatch and retry orchestration
+- `src/orchestrator/fleet_service.py`
+  - fleet snapshot management and registration handling
+- `src/orchestrator/emergency_service.py`
+  - emergency lifecycle and dispatch coordination
+- `src/orchestrator/persistence.py`
+  - DB telemetry batching + alert persistence
 
-- `vehicle_id`: Unique identifier (e.g., "AMB-001", "FIRE-042")
-- `vehicle_type`: AMBULANCE or FIRE_TRUCK
-- `unit_number`: Fleet unit number
-- `station_id`: Home station/base identifier
-- `make`, `model`, `year`: Vehicle specifications
-- `vin`: Vehicle Identification Number
-- `equipment_manifest`: Type-specific equipment dictionary
+## Canonical Data Models
 
-**Example:**
+### Vehicle and Location
 
-```json
-{
-  "vehicle_id": "AMB-001",
-  "vehicle_type": "ambulance",
-  "unit_number": "A1",
-  "station_id": "ST-CENTRAL",
-  "make": "Ford",
-  "model": "F-450 Super Duty",
-  "year": 2025,
-  "vin": "1FDUF5HT5MEC12345",
-  "equipment_manifest": {
-    "defibrillator": "Zoll X Series",
-    "stretcher": "Stryker Power-PRO",
-    "ventilator": "Philips Trilogy Evo"
-  }
-}
-```
+- `src/models/vehicle.py`
+  - `Vehicle`
+  - `Location`
+  - `VehicleRegistration`
 
----
+### Telemetry
 
-#### Vehicle Telemetry
+- `src/models/telemetry.py`
+  - `VehicleTelemetry`
+  - includes `vehicle_type` for explicit metadata propagation
 
-High-frequency sensor data captured every second.
+### Alerts
 
-**Categories:**
+- `src/models/alerts.py`
+  - `PredictiveAlert`
 
-1. **Location & Movement**: GPS coordinates, speed, heading, odometer
-2. **Engine & Powertrain**: Temperature, RPM, oil pressure, throttle position
-3. **Electrical System**: Battery voltage/current, alternator, state of charge
-4. **Fuel System**: Level, consumption rate, economy
-5. **Braking System**: Pad thickness, fluid level, temperature, ABS status
-6. **Tires**: Pressure, temperature per tire
-7. **Suspension & Chassis**: Vibration, suspension travel
-8. **Environmental**: Cabin/exterior temperature, humidity
-9. **Emergency Equipment**: Siren, lights, type-specific equipment status
-10. **Diagnostics**: Active DTC codes
+### Emergency and Dispatch
 
-**Key Metrics (40+ telemetry points):**
+- `src/models/emergency.py`
+  - `Emergency`, `UnitsRequired`, enums
+- `src/models/dispatch.py`
+  - `Dispatch`, `DispatchedUnit`, `VehicleStatusSnapshot`
 
-- `engine_temp_celsius` (range: -40 to 150°C)
-- `engine_rpm` (0-8000 RPM)
-- `battery_voltage` (0-30V)
-- `fuel_level_percent` (0-100%)
-- `tire_pressure_psi` (dict per tire)
-- `vibration_g_force` (x, y, z axes)
-- And 30+ more...
+### Events
 
-**Frequency:** 1 Hz (every second)  
-**Message Size:** ~2-3 KB JSON per message  
-**Daily Volume per Vehicle:** Aprox. 86,400 messages (~250 MB/day uncompressed)
+- `src/models/events.py`
+  - `VehicleRegistrationEvent`
 
----
+## State and Data Flow
 
-#### Vehicle State
+1. Vehicle starts and publishes `VehicleRegistrationEvent`.
+2. Orchestrator registers/updates snapshot via `FleetService.register_vehicle(...)`.
+3. Vehicle streams `VehicleTelemetry`.
+4. Orchestrator updates fleet state and enqueues persistence via `TelemetrySink`.
+5. Vehicle emits `PredictiveAlert` when anomaly logic triggers.
+6. Orchestrator updates active alert state and persists via `AlertSink`.
+7. Dispatch commands and resolve broadcasts update vehicle operational status.
 
-Operational context updated on status changes (every 5-10 seconds or on events).
+## Persistence Strategy
 
-**Fields:**
+- Online source of truth for runtime decisions: in-memory fleet/emergency state.
+- Persistence side effects:
+  - telemetry batched by `DatabaseTelemetryPersister`
+  - alerts persisted by `DatabaseAlertPersister`
+- DB writes are asynchronous relative to control-loop behavior.
 
-- `operational_status`: IDLE, EN_ROUTE, ON_SCENE, RETURNING, MAINTENANCE, OFFLINE
-- `mission_id`: Current emergency assignment (nullable)
-- `assigned_crew`: List of crew member IDs
-- `crew_count`: Number of personnel on board
-- `destination`: Target GPS location (nullable)
-- `eta_seconds`: Estimated time to destination
+## Time and Determinism
 
----
+- Runtime uses `RealClock`.
+- E2E tests use `FastForwardClock` to advance simulation without wall-clock delays.
+- Timestamp defaults in core models are UTC-aware.
 
-#### Predictive Alerts
+## Notes on Legacy Concepts
 
-Alerts generated by ML models or rule-based engines when anomalies/failures are predicted.
-
-**Fields:**
-
-- `alert_id`: Unique UUID
-- `severity`: CRITICAL, WARNING, INFO
-- `category`: ENGINE, TRANSMISSION, ELECTRICAL, BRAKES, etc.
-- `component`: Specific part (e.g., "alternator", "front_left_brake_pad")
-- `failure_probability`: 0.0-1.0 score
-- `confidence`: Model confidence score
-- `predicted_failure_min/max/likely_hours`: Time window prediction
-- `can_complete_current_mission`: Boolean decision support
-- `safe_to_operate`: Critical safety flag
-- `recommended_action`: Human-readable guidance
-- `contributing_factors`: List of telemetry anomalies
-- `model_version`: Which ML model generated this
-
-**Alert Lifecycle:**
-
-1. Generated by vehicle agent or orchestrator
-2. Published to Redis `alerts:{vehicle_id}` channel
-3. Acknowledged by orchestrator
-4. Stored in time-series database for 30+ days
-5. Used for ML model training/improvement
-
----
-
-#### Maintenance Recommendations
-
-Actionable maintenance advice generated from alerts.
-
-**Fields:**
-
-- `urgency`: IMMEDIATE, URGENT, SCHEDULED, PREVENTIVE
-- `component`, `issue_description`, `recommended_action`
-- `estimated_downtime_hours`, `estimated_labor_hours`, `estimated_cost_usd`
-- `parts_needed`: List of replacement parts
-- `can_defer`: Whether maintenance can be postponed
-- `deferral_risk`: Risk description if deferred
-
----
-
-### 2. Communication Messages
-
-#### Message Envelope
-
-Universal wrapper for all communications between components.
-
-**Structure:**
-
-```python
-{
-  "message_id": "uuid",
-  "message_type": "telemetry.update",
-  "timestamp": "2026-02-10T14:32:01.000Z",
-  "source": "AMB-001",
-  "destination": "orchestrator",  # or null for broadcast
-  "priority": "normal",
-  "correlation_id": "uuid",  # for request/response pairing
-  "payload": { ... },
-  "ttl_seconds": 60,
-  "schema_version": "1.0.0"
-}
-```
-
-**Message Types:**
-
-**Vehicle → Orchestrator:**
-
-- `telemetry.update`: Real-time sensor data (1 Hz)
-- `vehicle.heartbeat`: Health check (every 10 sec)
-- `alert.generated`: Predictive alert created
-- `vehicle.status_change`: Operational status changed
-- `vehicle.local_decision`: Autonomous action taken
-
-**Orchestrator → Vehicle:**
-
-- `vehicle.command`: Direct command (DISPATCH, STANDBY, etc.)
-- `vehicle.config_update`: Update agent configuration
-- `alert.acknowledge`: Confirm alert received
-- `mission.assignment`: Assign emergency mission
-- `vehicle.override`: Override local decision
-
-**Orchestrator → Dashboard:**
-
-- `fleet.status`: Aggregated fleet overview
-- `alert.broadcast`: New alert for UI
-- `vehicle.update`: Individual vehicle state change
-
----
-
-### 3. Failure Scenarios (Simulation)
-
-**16+ Predefined Failure Modes:**
-
-**Engine:**
-
-- `engine_overheat`: Coolant leak or radiator failure
-- `oil_pressure_drop`: Oil pump failure or leak
-- `coolant_leak`: Progressive coolant loss
-
-**Electrical:**
-
-- `alternator_failure`: Charging system failure
-- `battery_degradation`: Gradual capacity loss
-- `voltage_spike`: Electrical system instability
-
-**Brakes:**
-
-- `brake_pad_wear_critical`: Pads below safety threshold
-- `brake_fluid_leak`: Hydraulic system leak
-- `abs_malfunction`: Anti-lock brake system failure
-
-**Tires:**
-
-- `tire_pressure_low`: Slow leak or valve issue
-- `tire_blowout`: Sudden catastrophic failure
-- `uneven_tire_wear`: Alignment/suspension issue
-
-**Fuel:**
-
-- `fuel_pump_failure`: Fuel delivery failure
-- `fuel_leak`: Tank or line leak
-- `injector_clog`: Poor fuel quality
-
-**Equipment (Type-Specific):**
-
-- Fire Truck: `water_pump_failure`, `ladder_hydraulic_leak`
-- Ambulance: `defibrillator_battery_low`, `medical_oxygen_low`
-
-Each scenario includes:
-
-- Trigger timing (when to start)
-- Progression rate (how fast failure develops)
-- Affected telemetry metrics
-- Realistic noise/variation
-
----
-
-## 🔄 Data Flow
-
-### High-Level Architecture
-
-```
-Vehicle Agents (N) 
-    ↓ (1 Hz telemetry, events)
-Redis Pub/Sub
-    ↓ (subscribe to all channels)
-Orchestrator (Central Brain)
-    ↓ (REST API / Fetch)
-Dashboard (Streamlit)
-
-Vehicle Agents → Redis → Orchestrator → TimescaleDB (30+ days)
-                                     ↓
-                               ML Training Pipeline
-```
-
-### Data Retention Strategy
-
-**3-Tier Storage:**
-
-1. **HOT (0-24 hours)**: Redis in-memory
-   - Purpose: Real-time streaming, current state
-   - Retention: Last known value + recent history
-   - Access: Sub-second latency
-
-2. **WARM (1-30 days)**: TimescaleDB (PostgreSQL)
-   - Purpose: Recent historical queries, dashboard analytics
-   - Retention: Full resolution time-series
-   - Access: Second-level latency, complex SQL queries
-
-3. **COLD (30+ days)**: Parquet files (Object Storage)
-   - Purpose: ML training datasets, long-term audit
-   - Retention: Compressed, columnar format
-   - Access: Batch processing only
-
-**Storage Estimates:**
-
-- 10 vehicles × 1 Hz × 3 KB/message = 2.6 GB/day (raw JSON)
-- 30 days = ~78 GB (compressed: ~20 GB with TimescaleDB)
-- 1 year = ~950 GB (compressed Parquet: ~100 GB)
-
----
-
-## 🔐 Data Quality & Validation
-
-### Pydantic Validation Rules
-
-All data models use **Pydantic v2** for:
-
-- Type checking (runtime validation)
-- Range validation (e.g., temperature -40 to 150°C)
-- Required vs optional fields
-- Automatic JSON serialization/deserialization
-- OpenAPI schema generation
-
-**Example Validation:**
-
-```python
-engine_temp_celsius: float = Field(..., ge=-40, le=150)
-battery_voltage: float = Field(..., ge=0, le=30)
-fuel_level_percent: float = Field(..., ge=0, le=100)
-```
-
-### Data Integrity
-
-- **Sequence Numbers**: Monotonic counters on telemetry for ordering/dedup
-- **Timestamps**: All events timestamped (UTC ISO 8601)
-- **Message TTL**: Expire stale messages (default 60 seconds)
-- **Correlation IDs**: Track request/response pairs
-- **Schema Versioning**: All messages include schema version
-
----
-
-## 📈 Scalability Considerations
-
-### Current POC (Phase 1)
-
-- **Fleet Size**: 10 vehicles
-- **Telemetry Rate**: 1 Hz
-- **Throughput**: ~30 KB/sec (~10 messages/sec)
-- **Infrastructure**: Single Redis instance, single orchestrator
-
-### Production Target (Future)
-
-- **Fleet Size**: 1,000+ vehicles
-- **Telemetry Rate**: 1 Hz (same)
-- **Throughput**: ~3 MB/sec (~1,000 messages/sec)
-- **Infrastructure**:
-  - Redis Cluster (sharded by vehicle_id)
-  - Multiple orchestrator replicas (load balanced)
-  - TimescaleDB with replication
-  - Message queue for backpressure handling
-
-**Migration Path**: Redis Pub/Sub → Hybrid Redis + MQTT → Full MQTT + Kafka
-
----
-
-## 🧪 Testing Strategy
-
-### Synthetic Data Generation
-
-**Realistic Simulation Requirements:**
-
-1. Physics-based movement (acceleration, deceleration, momentum)
-2. Correlated sensor readings (high RPM → high temperature)
-3. Environmental factors (weather affects sensors)
-4. Equipment usage patterns (siren/lights during missions)
-5. Gradual degradation (battery slowly loses capacity)
-6. Sudden failures (tire blowout, alternator failure)
-
-**Test Scenarios:**
-
-- Normal operation (80% of time)
-- Emergency response (15% of time)
-- Maintenance/downtime (5% of time)
-- Random failures (configurable probability)
-
-### Data Quality Checks
-
-- Schema validation on all messages
-- Range validation on sensor readings
-- Timestamp ordering validation
-- Missing data detection
-- Outlier detection (statistical anomalies)
-
----
-
-## 📚 Related Documentation
-
-- [ROADMAP.md](./ROADMAP.md) - Implementation phases and timeline
-- [COMMUNICATION_PROTOCOL.md](./COMMUNICATION_PROTOCOL.md) - Redis channel design
-- [SIMULATION.md](./SIMULATION.md) - Detailed failure scenarios
-- [API_SPEC.md](./API_SPEC.md) - Message payload specifications (TODO)
-
----
-
-## 🔧 Technology Stack
-
-- **Language**: Python 3.13+
-- **Validation**: Pydantic v2
-- **Message Broker**: Redis Pub/Sub (Phase 1), MQTT (Phase 2)
-- **Time-Series DB**: TimescaleDB (PostgreSQL extension)
-- **Dashboard**: Streamlit (replacing pure WebSocket/React approach)
-- **Storage**: Parquet (PyArrow) for cold storage
-- **ML**: scikit-learn, PyTorch (future)
-
----
-
-## ✅ Design Decisions
-
-### Why High Frequency (1 Hz)?
-
-- Critical for detecting rapid failures (overheating, voltage spikes)
-- Enables sub-minute response times
-- Supports real-time dashboard visualization
-- Standard for automotive telemetry systems
-
-### Why Redis Pub/Sub First?
-
-- Simple to implement for POC
-- Low latency (~1ms)
-- Built-in data structures (hashes, sorted sets)
-- Easy migration path to MQTT/Kafka
-
-### Why TimescaleDB?
-
-- SQL interface (familiar for queries)
-- Excellent compression (10:1 ratio)
-- Automatic partitioning by time
-- Native PostgreSQL compatibility
-- Complex analytics queries support
-
-### Why Orchestrator-Led Decisions?
-
-- Centralized fleet optimization
-- Cross-vehicle coordination possible
-- Easier to update decision logic
-- Audit trail for all commands
-- Vehicles still have autonomy for safety-critical local actions
-
----
-
-**Next Steps**: See [ROADMAP.md](./ROADMAP.md) for implementation plan.
+- Earlier docs referenced a large envelope format and many unimplemented telemetry fields.
+- Current implementation uses direct model JSON payloads over channels.
+- The documented architecture reflects actual code in `src/` as of this version.

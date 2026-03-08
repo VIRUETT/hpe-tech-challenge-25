@@ -1,5 +1,6 @@
-from datetime import datetime, UTC
-from typing import Optional
+from datetime import UTC, datetime
+
+import structlog
 
 from src.models.alerts import PredictiveAlert
 from src.models.dispatch import VehicleStatusSnapshot
@@ -7,29 +8,7 @@ from src.models.enums import OperationalStatus, VehicleType
 from src.models.telemetry import VehicleTelemetry
 from src.models.vehicle import Location
 
-import structlog
-
 logger = structlog.get_logger(__name__)
-
-
-def _infer_vehicle_type(vehicle_id: str) -> VehicleType:
-    """Infer vehicle type from vehicle_id prefix convention.
-
-    Args:
-        vehicle_id: Vehicle identifier (e.g. AMB-001, FIRE-002, POL-003).
-
-    Returns:
-        Best-guess VehicleType, defaults to AMBULANCE if unknown.
-    """
-    vid = vehicle_id.upper()
-    if vid.startswith("AMB"):
-        return VehicleType.AMBULANCE
-    if vid.startswith("FIR") or vid.startswith("FIRE"):
-        return VehicleType.FIRE_TRUCK
-    if vid.startswith("POL"):
-        return VehicleType.POLICE
-    logger.warning("unknown_vehicle_id_prefix", vehicle_id=vehicle_id)
-    return VehicleType.AMBULANCE
 
 
 class FleetService:
@@ -39,7 +18,7 @@ class FleetService:
 
     def process_telemetry(
         self, telemetry: VehicleTelemetry
-    ) -> tuple[bool, Optional[VehicleType], VehicleStatusSnapshot]:
+    ) -> tuple[bool, VehicleType | None, VehicleStatusSnapshot]:
         """
         Update fleet state from telemetry.
         Returns a tuple: (is_new_vehicle, vehicle_type, updated_snapshot)
@@ -51,13 +30,19 @@ class FleetService:
         snap = self.fleet.get(vehicle_id)
         if snap is None:
             is_new = True
-            vehicle_type = _infer_vehicle_type(vehicle_id)
-            snap = VehicleStatusSnapshot(
-                vehicle_id=vehicle_id,
-                vehicle_type=vehicle_type,
-                operational_status=OperationalStatus.IDLE,
+            vehicle_type = telemetry.vehicle_type
+            if vehicle_type is None:
+                raise ValueError("Vehicle type is required for new vehicle registration")
+            snap = VehicleStatusSnapshot.model_validate(
+                {
+                    "vehicle_id": vehicle_id,
+                    "vehicle_type": vehicle_type,
+                    "operational_status": OperationalStatus.IDLE,
+                }
             )
             self.fleet[vehicle_id] = snap
+        elif telemetry.vehicle_type is not None:
+            snap.vehicle_type = telemetry.vehicle_type
 
         # Update last seen timestamp
         snap.last_seen_at = datetime.now(UTC)
@@ -88,21 +73,46 @@ class FleetService:
         )
 
         return is_new, vehicle_type, snap
-    
+
+    def register_vehicle(
+        self,
+        vehicle_id: str,
+        vehicle_type: VehicleType,
+        status: OperationalStatus = OperationalStatus.IDLE,
+    ) -> tuple[bool, VehicleStatusSnapshot]:
+        """Register vehicle metadata before first telemetry arrives."""
+        existing = self.fleet.get(vehicle_id)
+        if existing is not None:
+            existing.vehicle_type = vehicle_type
+            existing.operational_status = status
+            existing.last_seen_at = datetime.now(UTC)
+            return False, existing
+
+        snapshot = VehicleStatusSnapshot.model_validate(
+            {
+                "vehicle_id": vehicle_id,
+                "vehicle_type": vehicle_type,
+                "operational_status": status,
+            }
+        )
+        snapshot.last_seen_at = datetime.now(UTC)
+        self.fleet[vehicle_id] = snapshot
+        return True, snapshot
+
     def handle_alert(self, alert: PredictiveAlert) -> None:
         """Update vehicle state to reflect an active alert."""
         vehicle_id = alert.vehicle_id
         if vehicle_id in self.fleet:
             self.fleet[vehicle_id].has_active_alert = True
         self.active_alerts[vehicle_id] = alert
-    
+
     def clear_alert(self, vehicle_id: str) -> None:
         """Clear the alert state and return vehicle to IDLE."""
         if vehicle_id in self.fleet:
             self.fleet[vehicle_id].has_active_alert = False
             self.fleet[vehicle_id].operational_status = OperationalStatus.IDLE
         self.active_alerts.pop(vehicle_id, None)
-    
+
     def get_summary(self, active_emergencies_count: int) -> dict:
         """Calculate and return the fleet summary metrics."""
         total = len(self.fleet)

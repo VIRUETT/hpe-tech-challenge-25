@@ -6,7 +6,7 @@ and managed by the orchestrator for dispatch coordination.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum, StrEnum
 
 from pydantic import BaseModel, Field
@@ -180,7 +180,7 @@ class Emergency(BaseModel):
     )
 
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="Timestamp when emergency was registered",
     )
     dispatched_at: datetime | None = Field(

@@ -43,6 +43,8 @@ dependencies = [
   "streamlit>=1.54.0",
   "pytest-bdd>=8.1.0",
   "folium>=0.20.0",
+  "osmnx>=2.1.0",
+  "networkx>=3.6.1",
 ]
 
 [project.optional-dependencies]

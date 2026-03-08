@@ -11,6 +11,8 @@ import click
 import structlog
 import uvicorn
 
+from src.core.time import RealClock
+from src.infrastructure.redis_bus import RedisMessageBus
 from src.orchestrator.agent import OrchestratorAgent
 from src.orchestrator.api import create_app
 
@@ -116,6 +118,13 @@ def main(
             redis_password=redis_password,
             redis_db=0,
             fleet_id=fleet_id,
+            message_bus=RedisMessageBus(
+                host=redis_host,
+                port=redis_port,
+                password=redis_password,
+                db=0,
+            ),
+            clock=RealClock(),
         )
 
         app = create_app(orchestrator)

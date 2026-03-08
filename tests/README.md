@@ -1,24 +1,28 @@
 # Testing Guide - Project AEGIS
 
-This guide explains the testing infrastructure and best practices for Project AEGIS.
+This guide explains how tests are organized after the architecture refactor.
 
-## 📁 Test Structure
+## Test Structure
 
 ```
 tests/
-├── conftest.py              # Global pytest configuration and fixtures
+├── conftest.py
 ├── fixtures/
-│   └── model_fixtures.py    # Shared test data fixtures
-├── unit/
-│   └── models/              # Unit tests for data models
-│       ├── test_alerts.py
-│       ├── test_enums.py
-│       ├── test_messages.py
-│       ├── test_simulation.py
-│       ├── test_telemetry.py
-│       └── test_vehicle.py
-└── integration/             # Integration tests
+├── unit/                     # Fast isolated tests
+├── integration/              # Service-level integration tests
+├── bdd/                      # Behavior specs using pytest-bdd
+├── e2e/                      # End-to-end async simulation tests
+└── features/                 # Gherkin feature files
 ```
+
+Notable end-to-end suites:
+
+- `tests/e2e/test_dispatch_flow.py`
+  - dispatch lifecycle with `FastForwardClock` and `InMemoryMessageBus`
+  - validates command flow and telemetry progression without wall-clock waits
+- `tests/e2e/test_maintenance_retry.py`
+  - validates retry behavior when emergencies wait for available units
+  - verifies maintenance/alert-clear interaction with orchestrator retry logic
 
 ## 🚀 Quick Start
 
@@ -27,6 +31,9 @@ tests/
 ```bash
 # Run all unit tests
 uv run pytest tests/unit/ -v
+
+# Run all end-to-end tests
+uv run pytest tests/e2e/ -v
 
 # Run specific test file
 uv run pytest tests/unit/models/test_vehicle.py -v
@@ -46,6 +53,9 @@ uv run pytest -m unit
 # Run only integration tests
 uv run pytest -m integration
 
+# Run BDD tests
+uv run pytest tests/bdd/ -v
+
 # Run tests in parallel (faster)
 uv run pytest -n auto
 ```
@@ -58,7 +68,6 @@ Tests are organized using pytest markers:
 - `@pytest.mark.integration` - Integration tests (slower, may need external services)
 - `@pytest.mark.slow` - Tests that take a long time
 - `@pytest.mark.simulation` - Simulation-specific tests
-- `@pytest.mark.models` - Model validation tests
 
 ## 📝 Writing Tests
 
@@ -93,17 +102,19 @@ def test_example(sample_vehicle_identity_data: dict) -> None:
     assert vehicle.vehicle_id == "AMB-001"
 ```
 
-Available fixtures:
-- `sample_datetime` - Consistent datetime for testing
-- `sample_vehicle_id` - Sample vehicle identifier
-- `sample_geolocation_data` - GeoLocation test data
-- `sample_vehicle_identity_data` - VehicleIdentity test data
-- `sample_vehicle_state_data` - VehicleState test data
-- `sample_telemetry_data` - VehicleTelemetry test data
-- `sample_predictive_alert_data` - PredictiveAlert test data
-- `sample_maintenance_recommendation_data` - MaintenanceRecommendation test data
-- `sample_message_data` - Message envelope test data
-- And many more...
+Available fixtures are defined in `tests/fixtures/` and `tests/conftest.py`.
+
+### Testing Refactored Runtime Components
+
+The runtime now depends on abstractions (`Clock`, `MessageBus`, persistence sinks).
+In tests, prefer these patterns:
+
+1. Inject `FastForwardClock` to avoid real-time sleeps.
+2. Inject `InMemoryMessageBus` to avoid external Redis dependency.
+3. Use noop/in-memory sink implementations for telemetry and alert persistence.
+4. Assert behavior (dispatch states, retries, transitions), not internals.
+
+This keeps tests deterministic and fast while preserving realistic async flow.
 
 ### Testing Pydantic Models
 
@@ -143,7 +154,7 @@ def test_vehicle_type_values(self) -> None:
     assert VehicleType.FIRE_TRUCK.value == "fire_truck"
 ```
 
-## 🔧 Code Quality Tools
+## Code Quality Tools
 
 ### Running Linters
 
@@ -202,7 +213,7 @@ Pipeline stages:
 
 View results at: `.github/workflows/ci.yml`
 
-## 📊 Coverage Reports
+## Coverage Reports
 
 Coverage reports show which code is tested:
 
@@ -222,7 +233,7 @@ xdg-open htmlcov/index.html
 - Models: > 95%
 - Critical paths: 100%
 
-## 🐛 Debugging Tests
+## Debugging Tests
 
 ### Running in Verbose Mode
 
@@ -256,7 +267,7 @@ uv run pytest --lf
 uv run pytest --ff
 ```
 
-## 🎯 Best Practices
+## Best Practices
 
 ### DO ✅
 
@@ -277,13 +288,13 @@ uv run pytest --ff
 - Don't write tests that depend on execution order
 - Don't ignore test warnings
 
-## 📚 Additional Resources
+## Additional Resources
 
 - [Pytest Documentation](https://docs.pytest.org/)
 - [Pydantic Testing Tips](https://docs.pydantic.dev/latest/concepts/testing/)
 - [Python Testing Best Practices](https://docs.python-guide.org/writing/tests/)
 
-## 🆘 Troubleshooting
+## Troubleshooting
 
 ### Tests fail with "Module not found"
 

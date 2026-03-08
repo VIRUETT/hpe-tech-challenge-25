@@ -1,73 +1,130 @@
-# 🚑 Project AEGIS: Sistema de Gemelos Digitales para Defensa Predictiva
->
-> **HPE GreenLake Tech Challenge - Fase II**
+# Project AEGIS
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/Docker-Enabled-blue.svg)](https://www.docker.com/)
-[![Status](https://img.shields.io/badge/Status-POC_Development-orange.svg)]()
+Digital Twin simulation for emergency fleets (ambulance, fire truck, police) with:
 
-## 📖 Visión del Proyecto
+- real-time telemetry streaming,
+- orchestrated dispatch,
+- predictive maintenance alerts,
+- fast API and dashboard integration.
 
-AEGIS no es solo un monitor de vehículos; es un **ecosistema de agentes autónomos**.
-Creamos **Gemelos Digitales** de vehículos de emergencia (ambulancias, bomberos) capaces de:
+This repository is a POC for the HPE GreenLake Tech Challenge.
 
-1. **Predecir sus propios fallos** antes de que ocurran (Defensa Predictiva).
-2. **Operar autónomamente** como nodos en una red distribuida.
-3. **Coordinarse en tiempo real** ante situaciones de crisis.
+## Current Architecture
 
----
+The codebase was refactored to make behavior clearer and to decouple runtime concerns from infrastructure details.
 
-## 🏗️ Arquitectura del Sistema
+### Core abstractions (`src/core/`)
 
-### 1. La Visión
+- `Clock` (`src/core/time.py`): time control abstraction.
+  - `RealClock`: production runtime clock.
+  - `FastForwardClock`: deterministic test clock for simulation acceleration.
+- `MessageBus` (`src/core/messaging.py`): pub/sub abstraction.
+- Persistence contracts (`src/core/persistence.py`): telemetry and alert sinks.
 
-*Lo que aspiramos construir en un entorno real de HPE GreenLake.*
+### Infrastructure adapters (`src/infrastructure/`)
 
-* **Arquitectura:** Microservicios distribuidos con orquestación Kubernetes.
-* **Inteligencia:** Modelos locales en el borde (Edge Computing) y entrenamiento federado en la nube.
-* **Comunicación:** V2X (Vehicle-to-Everything) usando 5G y WebSockets seguros.
+- `RedisMessageBus`: Redis-backed pub/sub adapter.
+- `InMemoryMessageBus`: in-memory event bus for end-to-end tests.
 
-### 2. La Implementación Actual
+### Domain services and agents
 
-*Lo que corre actualmente en este repositorio para la demostración.*
+- Vehicle runtime (`src/vehicle_agent/agent.py`):
+  - publishes telemetry and predictive alerts,
+  - consumes dispatch/resolve commands,
+  - publishes startup registration events (`vehicle.registered`),
+  - supports injected `Clock` + `MessageBus`.
+- Orchestrator (`src/orchestrator/agent.py`):
+  - consumes telemetry, alerts, alerts-cleared, and registration events,
+  - runs dispatch and retry logic,
+  - supports injected `Clock`, `MessageBus`, and persistence sinks.
+- Persistence component (`src/orchestrator/persistence.py`):
+  - batched telemetry persistence,
+  - alert persistence,
+  - separated from orchestrator decision logic.
 
-El sistema se simula utilizando contenedores Docker para representar los nodos de la red:
+### Explicit vehicle registration (no ID inference requirement)
 
-* **Vehicle Nodes (Agentes):** Scripts en Python que simulan la física del vehículo y generan telemetría (sintética/ABM).
-* **Message Broker (Redis/MQTT):** La "tubería" de comunicación en tiempo real.
-* **Central Brain (Orquestador):** Servicio que recibe alertas, gestiona el estado de la flota y asigna recursos.
-* **Dashboard (Streamlit):** Visualización en tiempo real del estado de los gemelos y alertas predictivas.
+At startup, each vehicle emits metadata through:
 
----
+- channel: `aegis:{fleet_id}:vehicles:register`
+- payload: `VehicleRegistrationEvent` (`src/models/events.py`)
 
-## 🚀 Roadmap & Consideraciones Futuras
+The orchestrator registers metadata directly via `FleetService.register_vehicle(...)`.
 
-Para escalar AEGIS a un entorno de producción masivo y mejorar la autonomía de los agentes, el proyecto contempla las siguientes evoluciones arquitectónicas:
+## Quick Start
 
-### A. Defensa Predictiva Bio-inspirada en el Edge
+Install dependencies:
 
-Mover la inferencia de anomalías directamente al hardware del vehículo (IoT) para reducir latencia y dependencia de la red.
+```bash
+uv sync
+```
 
-* **Estrategia:** Transición de modelos tradicionales a Autoencoders LSTM o **Redes Neuronales Pulsantes (SNNs)**. El uso de SNNs, inspiradas en la neurociencia computacional, permitirá procesar series de tiempo de telemetría de forma asíncrona, reduciendo drásticamente el consumo energético en los microcontroladores del vehículo.
+Run orchestrator API:
 
-### B. Ecosistema MARL (Multi-Agent Reinforcement Learning)
+```bash
+uv run aegis-orchestrator
+```
 
-Eliminar el punto único de fallo del "Cerebro Central" permitiendo que los agentes negocien rutas y prioridades entre ellos.
+Run a single vehicle:
 
-* **Estrategia:** Implementar algoritmos como MAPPO integrados con Graph Neural Networks (GNNs). Esto permitirá modelar la ciudad como un grafo espacial, donde cada gemelo digital aprende a tomar decisiones descentralizadas para maximizar una recompensa global (ej. minimizar el tiempo de respuesta de toda la flota ante un desastre).
+```bash
+uv run aegis-vehicle --vehicle-id AMB-001 --vehicle-type ambulance
+```
 
-### C. Motor de Simulación de Alta Concurrencia
+Run fleet simulation:
 
-Superar las limitaciones del Global Interpreter Lock (GIL) de Python en la generación masiva de telemetría sintética.
+```bash
+uv run aegis-fleet --ambulances 2 --fire-trucks 1 --police 1
+```
 
-* **Estrategia:** Reescritura del motor físico y de generación de agentes utilizando lenguajes de bajo nivel seguros en memoria como **Rust**. Esto habilitará una concurrencia masiva real, permitiendo simular miles de vehículos enviando datos vía WebSockets a altos *tick rates* sin colapsar el orquestador, manteniendo a Python exclusivamente para la inferencia de IA pesada.
+Run dashboard:
 
-## 👥 Contribución
+```bash
+uv run streamlit run main.py
+```
 
-* Main Branch: Código estable y funcional (POC).
+## Testing
 
-* Release Branch: Integración de nuevas funcionalidades.
+Unit tests:
 
-* Feature Branches: feature/simulacion-motor, feature/frontend-mapa.
+```bash
+uv run pytest -m unit
+```
 
-> La clave no es el vehículo en sí, sino la capacidad de anticiparse.
+Integration/E2E examples:
+
+```bash
+uv run pytest tests/e2e/test_dispatch_flow.py
+uv run pytest tests/e2e/test_maintenance_retry.py
+```
+
+Run all tests:
+
+```bash
+uv run pytest
+```
+
+## Code Quality
+
+```bash
+uv run ruff check .
+uv run ruff format .
+uv run mypy src/
+```
+
+## Roadmap Notes
+
+The current architecture is intentionally ready for future extension points:
+
+- route providers (Haversine now, road-constrained engines later),
+- alternative message buses,
+- accelerated simulation workflows,
+- richer event-driven persistence and analytics.
+
+## Documentation Map
+
+- `docs/ARCHITECTURE.md` - Canonical component/event flow overview
+- `docs/COMMUNICATION_PROTOCOL.md` - Channel contracts and payload examples
+- `docs/DATA_ARCHITECTURE.md` - Runtime data model architecture
+- `docs/SIMULATION.md` - Simulation behavior and E2E scenario scope
+- `docs/ROADMAP.md` - Current progress and planned evolution

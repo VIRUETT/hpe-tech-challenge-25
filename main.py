@@ -100,7 +100,13 @@ def _vehicle_icon(status: str, has_alert: bool) -> tuple[str, str]:
     return "#6b7280", "🚗"
 
 
-def _render_folium_map(fleet_data: dict | None, emergencies: list | None) -> None:
+def _render_folium_map(
+    fleet_data: dict | None,
+    emergencies: list | None,
+    *,
+    center: list[float] | None = None,
+    zoom: int = 13,
+) -> None:
     """Build and render a Folium OpenStreetMap with vehicles and emergencies.
 
     Vehicles are shown as coloured circle markers with popup details.
@@ -110,11 +116,14 @@ def _render_folium_map(fleet_data: dict | None, emergencies: list | None) -> Non
     Args:
         fleet_data: JSON payload from GET /fleet, or None if unavailable.
         emergencies: JSON list from GET /emergencies, or None if unavailable.
+        center: Map center [lat, lon]. Defaults to SF center if None.
+        zoom: Initial zoom level.
     """
-    sf_center = [(SF_LAT_MIN + SF_LAT_MAX) / 2, (SF_LON_MIN + SF_LON_MAX) / 2]
+    default_center = [(SF_LAT_MIN + SF_LAT_MAX) / 2, (SF_LON_MIN + SF_LON_MAX) / 2]
+    location = center if center is not None else default_center
     fmap = folium.Map(
-        location=sf_center,
-        zoom_start=13,
+        location=location,
+        zoom_start=zoom,
         tiles="OpenStreetMap",
         control_scale=True,
     )
@@ -213,7 +222,7 @@ def _render_folium_map(fleet_data: dict | None, emergencies: list | None) -> Non
     if not has_any_marker:
         # Fallback label when orchestrator is offline
         folium.Marker(
-            location=sf_center,
+            location=default_center,
             tooltip="Waiting for data…",
             icon=folium.Icon(color="gray", icon="time", prefix="glyphicon"),
         ).add_to(fmap)
@@ -278,6 +287,13 @@ def main() -> None:
         "Real-time visualization of emergency vehicles, orchestrator actions, and city scenarios."
     )
 
+    # Persist map view so reruns do not reset zoom/center
+    default_center = [(SF_LAT_MIN + SF_LAT_MAX) / 2, (SF_LON_MIN + SF_LON_MAX) / 2]
+    if "map_center" not in st.session_state:
+        st.session_state.map_center = default_center
+    if "map_zoom" not in st.session_state:
+        st.session_state.map_zoom = 13
+
     # Fetch all data
     fleet_data = fetch_fleet()
     emergencies = fetch_emergencies()
@@ -308,7 +324,12 @@ def main() -> None:
 
     with col_map:
         st.subheader("City Map (Live)")
-        _render_folium_map(fleet_data, emergencies)
+        _render_folium_map(
+            fleet_data,
+            emergencies,
+            center=st.session_state.map_center,
+            zoom=st.session_state.map_zoom,
+        )
 
     with col_list:
         st.subheader("Active Scenarios & Crimes")

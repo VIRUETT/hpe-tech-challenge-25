@@ -6,7 +6,7 @@ real-time vehicle status snapshots maintained by the orchestrator.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -27,7 +27,7 @@ class DispatchedUnit(BaseModel):
 
     vehicle_id: str
     vehicle_type: VehicleType
-    assigned_at: datetime = Field(default_factory=datetime.utcnow)
+    assigned_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     acknowledged: bool = Field(default=False, description="Vehicle acknowledged assignment")
     acknowledged_at: datetime | None = Field(None, description="Timestamp of acknowledgment")
 
@@ -58,7 +58,7 @@ class Dispatch(BaseModel):
         description="List of units dispatched",
     )
     dispatched_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="Timestamp when dispatch was issued",
     )
     completed_at: datetime | None = Field(
@@ -137,7 +137,7 @@ class VehicleStatusSnapshot(BaseModel):
     location: Location | None = Field(None, description="Last known GPS position")
     current_emergency_id: str | None = Field(None, description="Active emergency ID if on mission")
     last_seen_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="Timestamp of last received telemetry or heartbeat",
     )
     battery_voltage: float | None = Field(None, description="Last known battery voltage (V)")
