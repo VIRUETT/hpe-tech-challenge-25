@@ -96,6 +96,20 @@ class AgentConfig(BaseSettings):
         default=1.0, ge=0.1, le=10.0, description="Telemetry generation frequency in Hz"
     )
 
+    # Navigation / Routing
+    navigator_provider: str = Field(
+        default="geometric",
+        description="Movement provider: geometric | osmnx",
+    )
+    osmnx_place_name: str = Field(
+        default="San Francisco, California, USA",
+        description="OSM place used to load the road network graph",
+    )
+    osmnx_network_type: str = Field(
+        default="drive",
+        description="OSMnx network type (drive, walk, bike, all)",
+    )
+
     # Initial State
     initial_status: OperationalStatus = Field(
         default=OperationalStatus.IDLE, description="Starting operational status"

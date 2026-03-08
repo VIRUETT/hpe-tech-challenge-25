@@ -32,6 +32,9 @@ This document is the canonical high-level view of how AEGIS components interact.
   - `FastForwardClock` for deterministic simulation tests
 - `MessageBus` (`src/core/messaging.py`)
   - Transport-independent pub/sub contract
+- `NavigatorProvider` (`src/vehicle_agent/navigation.py`)
+  - `GeometricNavigator` (default)
+  - `OSMnxNavigator` (road-constrained)
 - `TelemetrySink` and `AlertSink` (`src/core/persistence.py`)
   - Persistence side-effect contracts
 

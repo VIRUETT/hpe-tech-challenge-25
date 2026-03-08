@@ -10,6 +10,7 @@ from src.vehicle_agent.config import (
     SF_LON_MIN,
     AgentConfig,
 )
+from src.vehicle_agent.navigation import GeometricNavigator, OSMnxNavigator
 from src.vehicle_agent.telemetry_generator import SimpleTelemetryGenerator
 
 
@@ -107,3 +108,30 @@ class TestSimpleTelemetryGenerator:
             gen.generate(OperationalStatus.EN_ROUTE)
         assert SF_LAT_MIN <= gen.current_latitude <= SF_LAT_MAX
         assert SF_LON_MIN <= gen.current_longitude <= SF_LON_MAX
+
+    def test_osmnx_provider_falls_back_to_geometric_when_graph_unavailable(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """OSMnx provider should degrade gracefully when graph loading fails."""
+        monkeypatch.setattr(OSMnxNavigator, "_load_graph", lambda self: None)
+        config = AgentConfig(
+            vehicle_id="AMB-001",
+            vehicle_type=VehicleType.AMBULANCE,
+            navigator_provider="osmnx",
+        )
+        gen = SimpleTelemetryGenerator(config)
+        gen.set_target_location(37.78, -122.41)
+        telemetry = gen.generate(OperationalStatus.EN_ROUTE)
+        assert telemetry.speed_kmh >= 0.0
+        assert SF_LAT_MIN <= telemetry.latitude <= SF_LAT_MAX
+        assert SF_LON_MIN <= telemetry.longitude <= SF_LON_MAX
+
+    def test_custom_navigator_injection_is_used(self, config: AgentConfig) -> None:
+        """Injected navigator should drive movement deterministically."""
+        navigator = GeometricNavigator()
+        generator = SimpleTelemetryGenerator(config, navigator=navigator)
+        generator.set_target_location(37.7750, -122.4180)
+        t1 = generator.generate(OperationalStatus.EN_ROUTE)
+        t2 = generator.generate(OperationalStatus.EN_ROUTE)
+        assert (t1.latitude != t2.latitude) or (t1.longitude != t2.longitude)

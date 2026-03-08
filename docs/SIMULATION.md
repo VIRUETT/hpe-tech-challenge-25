@@ -23,6 +23,28 @@ The current movement engine is geometric, not road-network-based:
 
 This is intentionally lightweight for POC reliability and fast execution.
 
+## Navigator Providers
+
+Movement is now pluggable through a `NavigatorProvider` (`src/vehicle_agent/navigation.py`).
+
+- `geometric` (default): current straight-line behavior with SF boundary clamping.
+- `osmnx`: road-constrained routing via OSMnx + NetworkX shortest path.
+
+When `osmnx` cannot load graph data or compute a route, it gracefully falls
+back to geometric movement so simulation does not fail hard.
+
+CLI examples:
+
+```bash
+uv run aegis-vehicle --vehicle-id AMB-001 --vehicle-type ambulance --navigator-provider osmnx
+uv run aegis-fleet --ambulances 3 --fire-trucks 1 --navigator-provider osmnx
+```
+
+Default OSM place is San Francisco:
+
+- `osmnx_place_name = "San Francisco, California, USA"`
+- `osmnx_network_type = "drive"`
+
 ## Failure and Maintenance Behavior
 
 Failure injection is implemented in `src/vehicle_agent/failure_injector.py`.
