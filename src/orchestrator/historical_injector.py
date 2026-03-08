@@ -5,10 +5,8 @@ Synced with the AI simulation clock to inject crimes based on the
 current simulated day of the week and hour. Respects SF boundaries.
 """
 
-import asyncio
 from pathlib import Path
 import pandas as pd
-from datetime import UTC, datetime
 
 import structlog
 

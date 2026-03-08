@@ -5,9 +5,6 @@ Provides real-time predictive analytics using the Random Forest crime model,
 while respecting the strict geographical operational boundaries of San Francisco.
 """
 
-import asyncio
-from datetime import UTC, datetime
-
 import structlog
 
 from src.models.emergency import (

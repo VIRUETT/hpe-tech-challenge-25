@@ -45,6 +45,7 @@ dependencies = [
   "folium>=0.20.0",
   "osmnx>=2.1.0",
   "networkx>=3.6.1",
+  "alembic>=1.18.4",
 ]
 
 [project.optional-dependencies]
