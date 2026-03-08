@@ -30,6 +30,15 @@ class DispatchedUnit(BaseModel):
     assigned_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     acknowledged: bool = Field(default=False, description="Vehicle acknowledged assignment")
     acknowledged_at: datetime | None = Field(None, description="Timestamp of acknowledgment")
+    role: str | None = Field(default=None, description="Operational role for this incident")
+    estimated_eta_minutes: float | None = Field(
+        default=None,
+        description="Estimated travel time to incident in minutes",
+    )
+    estimated_arrival_at: datetime | None = Field(
+        default=None,
+        description="Estimated arrival timestamp at incident",
+    )
 
 
 class Dispatch(BaseModel):

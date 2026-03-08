@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.models.enums import OperationalStatus, VehicleType
+from src.orchestrator.agent import OrchestratorAgent
 from src.vehicle_agent.agent import VehicleAgent
 from src.vehicle_agent.config import AgentConfig
 
@@ -159,6 +160,56 @@ class TestHandleDispatchCommand:
         )
         assert agent.operational_status == OperationalStatus.EN_ROUTE
         assert agent.current_emergency_id == "emg-fire-01"
+
+    @pytest.mark.asyncio
+    async def test_dispatch_publishes_ack_with_in_memory_bus(self) -> None:
+        """Dispatch should publish an acknowledgment event for SLA tracking."""
+        from src.core.time import FastForwardClock
+        from src.infrastructure.in_memory_bus import InMemoryMessageBus
+
+        bus = InMemoryMessageBus()
+        clock = FastForwardClock()
+        orchestrator = OrchestratorAgent(message_bus=bus, clock=clock)
+        vehicle = VehicleAgent(
+            AgentConfig(
+                vehicle_id="AMB-001",
+                vehicle_type=VehicleType.AMBULANCE,
+                fleet_id="fleet01",
+            ),
+            message_bus=bus,
+            clock=clock,
+        )
+
+        orchestrator_task = asyncio.create_task(orchestrator.run())
+        vehicle_task = asyncio.create_task(vehicle.run())
+        try:
+            for _ in range(3):
+                clock.advance(1.0)
+                await asyncio.sleep(0)
+
+            emergency = {
+                "command": "dispatch",
+                "emergency_id": "emg-ack-001",
+                "emergency_type": "medical",
+                "location": {"latitude": 37.7749, "longitude": -122.4194},
+                "dispatch_id": "disp-ack-001",
+            }
+            await vehicle._handle_command(json.dumps(emergency))
+
+            for _ in range(3):
+                await asyncio.sleep(0)
+
+            dispatch = orchestrator.dispatches.get("emg-ack-001")
+            if dispatch is not None and dispatch.units:
+                assert dispatch.units[0].acknowledged is True
+        finally:
+            vehicle.running = False
+            orchestrator.running = False
+            clock.advance(1.0)
+            await asyncio.sleep(0)
+            await bus.close()
+            await asyncio.wait_for(orchestrator_task, timeout=1.0)
+            await asyncio.wait_for(vehicle_task, timeout=1.0)
 
 
 # ---------------------------------------------------------------------------

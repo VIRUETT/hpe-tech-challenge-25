@@ -9,14 +9,36 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from typing import Protocol
+from datetime import UTC, datetime
+from typing import Any, Protocol
 
 import structlog
 
-from src.models.enums import OperationalStatus
+from src.models.enums import OperationalStatus, VehicleType
 from src.vehicle_agent.config import SF_LAT_MAX, SF_LAT_MIN, SF_LON_MAX, SF_LON_MIN
 
 logger = structlog.get_logger(__name__)
+
+IDLE_BASE_SPEED_KMH: dict[VehicleType, float] = {
+    VehicleType.AMBULANCE: 42.0,
+    VehicleType.FIRE_TRUCK: 32.0,
+    VehicleType.POLICE: 48.0,
+}
+
+EN_ROUTE_BASE_SPEED_KMH: dict[VehicleType, float] = {
+    VehicleType.AMBULANCE: 68.0,
+    VehicleType.FIRE_TRUCK: 52.0,
+    VehicleType.POLICE: 78.0,
+}
+
+
+def _traffic_multiplier(current_hour: int) -> float:
+    """Return traffic impact multiplier based on local hour."""
+    if 7 <= current_hour <= 9 or 16 <= current_hour <= 19:
+        return 0.75
+    if 22 <= current_hour or current_hour <= 5:
+        return 1.1
+    return 0.9
 
 
 @dataclass(slots=True)
@@ -50,8 +72,10 @@ class NavigatorProvider(Protocol):
         heading_degrees: float,
         status: OperationalStatus,
         dt_hours: float,
+        current_hour: int | None = None,
     ) -> NavigationResult:
         """Advance one movement tick."""
+        ...
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -142,9 +166,22 @@ def _apply_sf_boundary(
 class GeometricNavigator:
     """Default navigator based on geometric movement and target bearing."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, vehicle_type: VehicleType = VehicleType.AMBULANCE) -> None:
         self._target_latitude: float | None = None
         self._target_longitude: float | None = None
+        self._vehicle_type = vehicle_type
+
+    def _speed_for_status(
+        self, status: OperationalStatus, current_hour: int | None = None
+    ) -> float:
+        """Return speed based on unit type, status, and simulated traffic."""
+        hour = current_hour if current_hour is not None else datetime.now(UTC).hour
+        multiplier = _traffic_multiplier(hour)
+        if status == OperationalStatus.IDLE:
+            return IDLE_BASE_SPEED_KMH.get(self._vehicle_type, 40.0) * multiplier
+        if status == OperationalStatus.EN_ROUTE:
+            return EN_ROUTE_BASE_SPEED_KMH.get(self._vehicle_type, 70.0) * multiplier
+        return 0.0
 
     def set_target(
         self, current_lat: float, current_lon: float, target_lat: float, target_lon: float
@@ -165,12 +202,10 @@ class GeometricNavigator:
         heading_degrees: float,
         status: OperationalStatus,
         dt_hours: float,
+        current_hour: int | None = None,
     ) -> NavigationResult:
-        idle_speed = 40.0
-        en_route_speed = 80.0
-
         if status == OperationalStatus.IDLE:
-            speed = idle_speed
+            speed = self._speed_for_status(status, current_hour)
             heading_degrees += random.uniform(-10.0, 10.0)
             bearing = math.radians(heading_degrees)
         elif (
@@ -192,7 +227,7 @@ class GeometricNavigator:
                     speed_kmh=0.0,
                     reached_target=True,
                 )
-            speed = en_route_speed
+            speed = self._speed_for_status(status, current_hour)
             bearing = _bearing_radians(
                 current_lat, current_lon, self._target_latitude, self._target_longitude
             )
@@ -228,10 +263,16 @@ class OSMnxNavigator:
 
     _graph_cache: dict[tuple[str, str], object] = {}
 
-    def __init__(self, *, place_name: str, network_type: str = "drive") -> None:
+    def __init__(
+        self,
+        *,
+        place_name: str,
+        network_type: str = "drive",
+        vehicle_type: VehicleType = VehicleType.AMBULANCE,
+    ) -> None:
         self._place_name = place_name
         self._network_type = network_type
-        self._fallback = GeometricNavigator()
+        self._fallback = GeometricNavigator(vehicle_type=vehicle_type)
         self._route_points: list[tuple[float, float]] = []
         self._route_index = 0
         self._target_latitude: float | None = None
@@ -260,6 +301,7 @@ class OSMnxNavigator:
         heading_degrees: float,
         status: OperationalStatus,
         dt_hours: float,
+        current_hour: int | None = None,
     ) -> NavigationResult:
         if status != OperationalStatus.EN_ROUTE:
             return self._fallback.step(
@@ -268,6 +310,7 @@ class OSMnxNavigator:
                 heading_degrees=heading_degrees,
                 status=status,
                 dt_hours=dt_hours,
+                current_hour=current_hour,
             )
 
         if not self._route_points:
@@ -277,9 +320,10 @@ class OSMnxNavigator:
                 heading_degrees=heading_degrees,
                 status=status,
                 dt_hours=dt_hours,
+                current_hour=current_hour,
             )
 
-        speed = 80.0
+        speed = self._fallback._speed_for_status(OperationalStatus.EN_ROUTE, current_hour)
         remaining = speed * dt_hours
         lat = current_lat
         lon = current_lon
@@ -336,16 +380,14 @@ class OSMnxNavigator:
             return
 
         try:
-            import networkx as nx
-            import osmnx as ox
-
-            start_node = ox.distance.nearest_nodes(graph, X=current_lon, Y=current_lat)
-            end_node = ox.distance.nearest_nodes(graph, X=target_lon, Y=target_lat)
-            node_path = nx.shortest_path(graph, start_node, end_node, weight="length")
+            graph_any: Any = graph
+            start_node = _nearest_nodes(graph_any, current_lon, current_lat)
+            end_node = _nearest_nodes(graph_any, target_lon, target_lat)
+            node_path = _shortest_path(graph_any, start_node, end_node)
 
             points: list[tuple[float, float]] = []
             for node in node_path:
-                node_data = graph.nodes[node]
+                node_data = graph_any.nodes[node]
                 points.append((float(node_data["y"]), float(node_data["x"])))
 
             # Keep original target as final point to avoid stopping at nearest node only.
@@ -368,7 +410,7 @@ class OSMnxNavigator:
                 network_type=self._network_type,
             )
 
-    def _load_graph(self) -> object | None:
+    def _load_graph(self) -> Any | None:
         cache_key = (self._place_name, self._network_type)
         if cache_key in self._graph_cache:
             return self._graph_cache[cache_key]
@@ -397,10 +439,25 @@ class OSMnxNavigator:
 def build_navigator(
     provider: str,
     *,
+    vehicle_type: VehicleType,
     osmnx_place_name: str,
     osmnx_network_type: str,
 ) -> NavigatorProvider:
     """Factory for navigation providers."""
     if provider.lower() == "osmnx":
-        return OSMnxNavigator(place_name=osmnx_place_name, network_type=osmnx_network_type)
-    return GeometricNavigator()
+        return OSMnxNavigator(
+            place_name=osmnx_place_name,
+            network_type=osmnx_network_type,
+            vehicle_type=vehicle_type,
+        )
+    return GeometricNavigator(vehicle_type=vehicle_type)
+
+
+_nearest_nodes = lambda graph, x, y: __import__("osmnx").distance.nearest_nodes(  # noqa: E731
+    graph, X=x, Y=y
+)
+
+
+_shortest_path = lambda graph, start, end: __import__("networkx").shortest_path(  # noqa: E731
+    graph, start, end, weight="length"
+)

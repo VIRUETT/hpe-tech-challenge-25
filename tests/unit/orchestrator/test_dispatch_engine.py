@@ -314,3 +314,16 @@ class TestDispatchEngine:
         engine = DispatchEngine(simple_fleet)
         dispatch = engine.select_units(_make_emergency(19.43, -99.13))
         assert dispatch.selection_criteria == "nearest_available"
+
+    def test_dispatched_unit_has_role_and_eta(
+        self, simple_fleet: dict[str, VehicleStatusSnapshot]
+    ) -> None:
+        """Dispatched units should include role assignment and ETA metadata."""
+        engine = DispatchEngine(simple_fleet)
+        dispatch = engine.select_units(_make_emergency(19.43, -99.13))
+
+        unit = dispatch.units[0]
+        assert unit.role is not None
+        assert unit.estimated_eta_minutes is not None
+        assert unit.estimated_eta_minutes >= 1.0
+        assert unit.estimated_arrival_at is not None

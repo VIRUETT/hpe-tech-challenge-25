@@ -59,6 +59,7 @@ class SimpleTelemetryGenerator:
         self.noise_levels: dict[str, float] = dict(VEHICLE_NOISE_LEVELS)
         self.navigator = navigator or build_navigator(
             config.navigator_provider,
+            vehicle_type=config.vehicle_type,
             osmnx_place_name=config.osmnx_place_name,
             osmnx_network_type=config.osmnx_network_type,
         )
@@ -124,6 +125,7 @@ class SimpleTelemetryGenerator:
             heading_degrees=self.heading_degrees,
             status=status,
             dt_hours=dt,
+            current_hour=self.clock.now().hour,
         )
         self.current_latitude = nav.latitude
         self.current_longitude = nav.longitude

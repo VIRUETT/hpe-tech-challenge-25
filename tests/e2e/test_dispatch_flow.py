@@ -110,6 +110,9 @@ async def test_dispatch_lifecycle_with_fast_forward_clock() -> None:
         await orchestrator.process_emergency(emergency)
 
         await _wait_until(lambda: vehicle.operational_status == OperationalStatus.EN_ROUTE)
+        await _wait_until(
+            lambda: orchestrator.dispatches[emergency.emergency_id].units[0].acknowledged is True
+        )
         await _advance_ticks(clock, 2)
         await _wait_until(lambda: vehicle.operational_status == OperationalStatus.ON_SCENE)
 

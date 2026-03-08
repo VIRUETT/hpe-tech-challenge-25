@@ -9,6 +9,7 @@ emergency dispatch.
 import asyncio
 import json
 from collections.abc import Callable, Coroutine
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -38,6 +39,7 @@ ALERTS_CLEARED_PATTERN = "aegis:*:alerts_cleared:*"
 EMERGENCY_CHANNEL = "aegis:emergencies:new"
 VEHICLE_REGISTER_PATTERN = "aegis:*:vehicles:register"
 DISPATCH_CHANNEL_PREFIX = "aegis:dispatch"
+DISPATCH_ACK_PATTERN = "aegis:dispatch:*:ack"
 
 # How often the background sweeper runs (seconds).
 SWEEPER_INTERVAL_SECONDS = 30.0
@@ -119,6 +121,7 @@ class OrchestratorAgent:
         self._telemetry_sink = telemetry_sink or DatabaseTelemetryPersister(batch_size=10)
         self._alert_sink = alert_sink or DatabaseAlertPersister()
         self.running = False
+        self._dispatch_ack_timeout_seconds = 20.0
 
     async def start(self) -> None:
         """Connect to Redis and start background listener task.
@@ -165,6 +168,7 @@ class OrchestratorAgent:
                 ALERTS_CLEARED_PATTERN,
                 EMERGENCY_CHANNEL,
                 VEHICLE_REGISTER_PATTERN,
+                DISPATCH_ACK_PATTERN,
             ):
                 if not self.running:
                     break
@@ -203,6 +207,8 @@ class OrchestratorAgent:
             elif "alerts" in channel:
                 alert = PredictiveAlert.model_validate_json(data)
                 await self._handle_alert(alert)
+            elif ":dispatch:" in channel and channel.endswith(":ack"):
+                await self._handle_dispatch_ack(data)
             else:
                 logger.debug("unhandled_channel", channel=channel)
         except Exception as e:
@@ -355,6 +361,55 @@ class OrchestratorAgent:
 
         await self._retry_dispatching_emergencies()
 
+    async def _handle_dispatch_ack(self, raw_data: str) -> None:
+        """Handle dispatch acknowledgment messages from vehicle agents."""
+        try:
+            payload = json.loads(raw_data)
+            emergency_id = payload.get("emergency_id", "")
+            dispatch_id = payload.get("dispatch_id", "")
+            vehicle_id = payload.get("vehicle_id", "")
+            acknowledged_at_raw = payload.get("acknowledged_at")
+        except (json.JSONDecodeError, AttributeError):
+            logger.warning("dispatch_ack_parse_error", raw=raw_data)
+            return
+
+        dispatch = self.dispatches.get(emergency_id)
+        if dispatch is None or dispatch.dispatch_id != dispatch_id:
+            logger.warning(
+                "dispatch_ack_unknown_dispatch",
+                emergency_id=emergency_id,
+                dispatch_id=dispatch_id,
+                vehicle_id=vehicle_id,
+            )
+            return
+
+        unit = next((u for u in dispatch.units if u.vehicle_id == vehicle_id), None)
+        if unit is None:
+            logger.warning(
+                "dispatch_ack_unknown_vehicle",
+                emergency_id=emergency_id,
+                dispatch_id=dispatch_id,
+                vehicle_id=vehicle_id,
+            )
+            return
+
+        unit.acknowledged = True
+        if isinstance(acknowledged_at_raw, str):
+            try:
+                unit.acknowledged_at = datetime.fromisoformat(acknowledged_at_raw)
+            except ValueError:
+                unit.acknowledged_at = self._clock.now()
+        else:
+            unit.acknowledged_at = self._clock.now()
+
+        logger.info(
+            "dispatch_ack_received",
+            emergency_id=emergency_id,
+            dispatch_id=dispatch_id,
+            vehicle_id=vehicle_id,
+            all_acknowledged=dispatch.all_acknowledged,
+        )
+
     async def _retry_dispatching_emergencies(self) -> None:
         """Attempt to dispatch emergencies that previously had no available units.
 
@@ -464,6 +519,8 @@ class OrchestratorAgent:
                     "emergency_type": emergency.emergency_type.value,
                     "location": emergency.location.model_dump(mode="json"),
                     "dispatch_id": dispatch.dispatch_id,
+                    "role": unit.role,
+                    "estimated_eta_minutes": unit.estimated_eta_minutes,
                 }
                 try:
                     await self._bus.publish(channel, json.dumps(payload))
@@ -486,6 +543,14 @@ class OrchestratorAgent:
             except Exception as e:
                 logger.error("broadcast_failed", emergency_id=emergency.emergency_id, error=str(e))
 
+            for unit in dispatch.units:
+                asyncio.create_task(
+                    self._watch_dispatch_ack(
+                        dispatch.dispatch_id, emergency.emergency_id, unit.vehicle_id
+                    ),
+                    name=f"ack-watch-{dispatch.dispatch_id}-{unit.vehicle_id}",
+                )
+
         logger.info(
             "emergency_processed",
             emergency_id=emergency.emergency_id,
@@ -495,6 +560,31 @@ class OrchestratorAgent:
         )
 
         return dispatch
+
+    async def _watch_dispatch_ack(
+        self,
+        dispatch_id: str,
+        emergency_id: str,
+        vehicle_id: str,
+    ) -> None:
+        """Emit an SLA warning when a unit does not acknowledge dispatch in time."""
+        await self._clock.sleep(self._dispatch_ack_timeout_seconds)
+
+        dispatch = self.dispatches.get(emergency_id)
+        if dispatch is None or dispatch.dispatch_id != dispatch_id:
+            return
+
+        unit = next((u for u in dispatch.units if u.vehicle_id == vehicle_id), None)
+        if unit is None or unit.acknowledged:
+            return
+
+        logger.warning(
+            "dispatch_ack_timeout",
+            dispatch_id=dispatch_id,
+            emergency_id=emergency_id,
+            vehicle_id=vehicle_id,
+            timeout_seconds=self._dispatch_ack_timeout_seconds,
+        )
 
     async def resolve_emergency(self, emergency_id: str) -> list[str]:
         """Mark an emergency as resolved and release its units back to IDLE.

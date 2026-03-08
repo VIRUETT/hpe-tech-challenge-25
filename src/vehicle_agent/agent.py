@@ -515,6 +515,9 @@ class VehicleAgent:
         if command == "dispatch":
             emergency_id = payload.get("emergency_id")
             emergency_type = payload.get("emergency_type", "unknown")
+            dispatch_id = payload.get("dispatch_id")
+            role = payload.get("role")
+            estimated_eta_minutes = payload.get("estimated_eta_minutes")
             location = payload.get("location", {})
             target_lat = location.get("latitude")
             target_lon = location.get("longitude")
@@ -531,6 +534,8 @@ class VehicleAgent:
             self.operational_status = OperationalStatus.EN_ROUTE
             self.current_emergency_id = emergency_id
 
+            await self._publish_dispatch_ack(emergency_id, dispatch_id)
+
             if target_lat is not None and target_lon is not None:
                 self.telemetry_generator.set_target_location(target_lat, target_lon)
 
@@ -539,6 +544,9 @@ class VehicleAgent:
                 vehicle_id=self.config.vehicle_id,
                 emergency_id=emergency_id,
                 emergency_type=emergency_type,
+                dispatch_id=dispatch_id,
+                role=role,
+                estimated_eta_minutes=estimated_eta_minutes,
                 target_lat=target_lat,
                 target_lon=target_lon,
                 new_status=self.operational_status.value,
@@ -563,4 +571,35 @@ class VehicleAgent:
                 "unknown_command",
                 vehicle_id=self.config.vehicle_id,
                 command=command,
+            )
+
+    async def _publish_dispatch_ack(
+        self, emergency_id: str | None, dispatch_id: str | None
+    ) -> None:
+        """Publish dispatch acknowledgment so orchestrator can track SLA."""
+        if not emergency_id or not dispatch_id:
+            return
+
+        channel = f"aegis:dispatch:{emergency_id}:ack"
+        payload = {
+            "vehicle_id": self.config.vehicle_id,
+            "emergency_id": emergency_id,
+            "dispatch_id": dispatch_id,
+            "acknowledged_at": self.clock.now().isoformat(),
+        }
+        try:
+            await self._bus.publish(channel, json.dumps(payload))
+            logger.info(
+                "dispatch_ack_published",
+                vehicle_id=self.config.vehicle_id,
+                emergency_id=emergency_id,
+                dispatch_id=dispatch_id,
+            )
+        except Exception as exc:
+            logger.error(
+                "dispatch_ack_publish_failed",
+                vehicle_id=self.config.vehicle_id,
+                emergency_id=emergency_id,
+                dispatch_id=dispatch_id,
+                error=str(exc),
             )

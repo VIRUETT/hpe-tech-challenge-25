@@ -64,8 +64,8 @@ class TestSimpleTelemetryGenerator:
         # The location should be close to initial, but it might have moved slightly due to the new movement logic
         assert abs(telemetry.latitude - config.initial_latitude) < 0.1
         assert abs(telemetry.longitude - config.initial_longitude) < 0.1
-        # IDLE vehicle defaults to speed 40 for random patrol
-        assert telemetry.speed_kmh == 40.0
+        # IDLE vehicle should keep a positive patrol speed
+        assert telemetry.speed_kmh > 0.0
 
     def test_add_noise_variability(self, generator: SimpleTelemetryGenerator) -> None:
         """Test that noise produces different values."""

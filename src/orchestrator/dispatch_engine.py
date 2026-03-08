@@ -1,11 +1,7 @@
-"""
-Dispatch engine for selecting and assigning units to emergencies.
-
-This module implements the logic for selecting the best available vehicles
-to respond to an emergency based on proximity and availability.
-"""
+"""Dispatch engine for selecting and assigning units to emergencies."""
 
 import math
+from datetime import UTC, datetime, timedelta
 
 import structlog
 
@@ -15,6 +11,18 @@ from src.models.enums import OperationalStatus, VehicleType
 from src.models.vehicle import Location
 
 logger = structlog.get_logger(__name__)
+
+AVERAGE_RESPONSE_SPEED_KMH: dict[VehicleType, float] = {
+    VehicleType.AMBULANCE: 60.0,
+    VehicleType.FIRE_TRUCK: 45.0,
+    VehicleType.POLICE: 70.0,
+}
+
+TYPE_ROLES: dict[VehicleType, tuple[str, ...]] = {
+    VehicleType.AMBULANCE: ("triage", "transport"),
+    VehicleType.FIRE_TRUCK: ("suppression", "rescue"),
+    VehicleType.POLICE: ("perimeter", "traffic_control", "scene_security"),
+}
 
 
 def _haversine_km(a: Location, b: Location) -> float:
@@ -83,6 +91,13 @@ class DispatchEngine:
             (VehicleType.POLICE, required.police),
         ]
 
+        now = datetime.now(UTC)
+        type_assignment_count: dict[VehicleType, int] = {
+            VehicleType.AMBULANCE: 0,
+            VehicleType.FIRE_TRUCK: 0,
+            VehicleType.POLICE: 0,
+        }
+
         for vehicle_type, count in type_requirements:
             if count == 0:
                 continue
@@ -100,13 +115,18 @@ class DispatchEngine:
 
             chosen = candidates[:count]
             for snap in chosen:
+                eta_minutes = self._estimate_eta_minutes(snap, emergency.location)
                 selected_units.append(
                     DispatchedUnit(
                         vehicle_id=snap.vehicle_id,
                         vehicle_type=snap.vehicle_type,
                         acknowledged_at=None,
+                        role=self._role_for(vehicle_type, type_assignment_count[vehicle_type]),
+                        estimated_eta_minutes=eta_minutes,
+                        estimated_arrival_at=now + timedelta(minutes=eta_minutes),
                     )
                 )
+                type_assignment_count[vehicle_type] += 1
                 # Mark as dispatched in the shared fleet state
                 snap.operational_status = OperationalStatus.EN_ROUTE
                 snap.current_emergency_id = emergency.emergency_id
@@ -199,3 +219,22 @@ class DispatchEngine:
                 key = snap.vehicle_type.value
                 counts[key] = counts.get(key, 0) + 1
         return counts
+
+    def _estimate_eta_minutes(
+        self,
+        snapshot: VehicleStatusSnapshot,
+        emergency_location: Location,
+    ) -> float:
+        """Estimate response ETA in minutes from distance and average speed."""
+        if snapshot.location is None:
+            return 0.0
+
+        distance_km = _haversine_km(snapshot.location, emergency_location)
+        speed_kmh = AVERAGE_RESPONSE_SPEED_KMH.get(snapshot.vehicle_type, 55.0)
+        eta = (distance_km / speed_kmh) * 60.0
+        return max(1.0, round(eta, 2))
+
+    def _role_for(self, vehicle_type: VehicleType, sequence_index: int) -> str:
+        """Return deterministic incident role for a dispatched unit."""
+        roles = TYPE_ROLES.get(vehicle_type, ("support",))
+        return roles[min(sequence_index, len(roles) - 1)]
