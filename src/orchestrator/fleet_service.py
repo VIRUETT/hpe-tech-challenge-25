@@ -1,7 +1,6 @@
-from datetime import UTC, datetime
-
 import structlog
 
+from src.core.time import Clock, RealClock
 from src.models.alerts import PredictiveAlert
 from src.models.dispatch import VehicleStatusSnapshot
 from src.models.enums import OperationalStatus, VehicleType
@@ -12,7 +11,8 @@ logger = structlog.get_logger(__name__)
 
 
 class FleetService:
-    def __init__(self) -> None:
+    def __init__(self, *, clock: Clock | None = None) -> None:
+        self._clock = clock or RealClock()
         self.fleet: dict[str, VehicleStatusSnapshot] = {}
         self.active_alerts: dict[str, PredictiveAlert] = {}
 
@@ -45,7 +45,7 @@ class FleetService:
             snap.vehicle_type = telemetry.vehicle_type
 
         # Update last seen timestamp
-        snap.last_seen_at = datetime.now(UTC)
+        snap.last_seen_at = self._clock.now()
 
         # Update location
         try:
@@ -85,7 +85,7 @@ class FleetService:
         if existing is not None:
             existing.vehicle_type = vehicle_type
             existing.operational_status = status
-            existing.last_seen_at = datetime.now(UTC)
+            existing.last_seen_at = self._clock.now()
             return False, existing
 
         snapshot = VehicleStatusSnapshot.model_validate(
@@ -95,7 +95,7 @@ class FleetService:
                 "operational_status": status,
             }
         )
-        snapshot.last_seen_at = datetime.now(UTC)
+        snapshot.last_seen_at = self._clock.now()
         self.fleet[vehicle_id] = snapshot
         return True, snapshot
 

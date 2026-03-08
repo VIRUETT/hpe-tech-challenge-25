@@ -364,7 +364,7 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
         location = Location(
             latitude=request.latitude,
             longitude=request.longitude,
-            timestamp=datetime.now(UTC),
+            timestamp=orchestrator._clock.now(),
         )
 
         # Use type-based defaults if no explicit units provided

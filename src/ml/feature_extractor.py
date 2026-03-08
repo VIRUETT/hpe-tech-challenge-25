@@ -116,6 +116,7 @@ class TelemetryFeatureExtractor:
 
         return features
 
+
 class CrimeFeatureExtractor:
     """Extracts and engineers features for crime prediction."""
 
@@ -131,61 +132,69 @@ class CrimeFeatureExtractor:
         df = df.copy()
 
         # Ensure date format is correct
-        if 'fecha_dt' in df.columns:
+        if "fecha_dt" in df.columns:
             # It exists but as a string, so we convert it
-            df['fecha_dt'] = pd.to_datetime(df['fecha_dt'], errors='coerce')
-        elif 'fecha' in df.columns:
+            df["fecha_dt"] = pd.to_datetime(df["fecha_dt"], errors="coerce")
+        elif "fecha" in df.columns:
             # Fallback if only 'fecha' exists
-            df['fecha_dt'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
+            df["fecha_dt"] = pd.to_datetime(df["fecha"], format="%d/%m/%Y", errors="coerce")
         else:
-            df['fecha_dt'] = pd.Timestamp.now()
+            df["fecha_dt"] = pd.Timestamp.now()
 
         # Basic temporal features
-        if 'hour_int' not in df.columns:
-            df['hour_int'] = pd.to_datetime(df['hora'], format='%H:%M', errors='coerce').dt.hour
+        if "hour_int" not in df.columns:
+            df["hour_int"] = pd.to_datetime(df["hora"], format="%H:%M", errors="coerce").dt.hour
 
-        df['hora'] = df['hour_int']
-        df['dia_semana'] = df['fecha_dt'].dt.dayofweek
-        df['mes'] = df['fecha_dt'].dt.month
-        df['año'] = df['fecha_dt'].dt.year
-        df['fin_semana'] = (df['dia_semana'] >= 5).astype(int)
+        df["hora"] = df["hour_int"]
+        df["dia_semana"] = df["fecha_dt"].dt.dayofweek
+        df["mes"] = df["fecha_dt"].dt.month
+        df["año"] = df["fecha_dt"].dt.year
+        df["fin_semana"] = (df["dia_semana"] >= 5).astype(int)
 
         # Características cíclicas
-        df['hora_sin'] = np.sin(2 * np.pi * df['hora'] / 24)
-        df['hora_cos'] = np.cos(2 * np.pi * df['hora'] / 24)
-        df['dia_sin'] = np.sin(2 * np.pi * df['dia_semana'] / 7)
-        df['dia_cos'] = np.cos(2 * np.pi * df['dia_semana'] / 7)
-        df['mes_sin'] = np.sin(2 * np.pi * df['mes'] / 12)
-        df['mes_cos'] = np.cos(2 * np.pi * df['mes'] / 12)
+        df["hora_sin"] = np.sin(2 * np.pi * df["hora"] / 24)
+        df["hora_cos"] = np.cos(2 * np.pi * df["hora"] / 24)
+        df["dia_sin"] = np.sin(2 * np.pi * df["dia_semana"] / 7)
+        df["dia_cos"] = np.cos(2 * np.pi * df["dia_semana"] / 7)
+        df["mes_sin"] = np.sin(2 * np.pi * df["mes"] / 12)
+        df["mes_cos"] = np.cos(2 * np.pi * df["mes"] / 12)
 
         # Codificación de variables categoricas
-        categorical_cols = ['crime_type', 'nivel_económico', 'nombre_de_la_colonia']
+        categorical_cols = ["crime_type", "nivel_económico", "nombre_de_la_colonia"]
         for col in categorical_cols:
             if col in df.columns:
                 le = LabelEncoder()
-                df[col] = df[col].fillna('desconocido')
-                df[f'{col}_cod'] = le.fit_transform(df[col].astype(str))
+                df[col] = df[col].fillna("desconocido")
+                df[f"{col}_cod"] = le.fit_transform(df[col].astype(str))
                 self.label_encoders[col] = le
 
         # 5. Crear variable objetivo (Target)
-        if 'nombre_de_la_colonia' in df.columns:
-            crime_counts = df['nombre_de_la_colonia'].value_counts()
+        if "nombre_de_la_colonia" in df.columns:
+            crime_counts = df["nombre_de_la_colonia"].value_counts()
             threshold = crime_counts.quantile(0.80)
             high_risk_areas = crime_counts[crime_counts >= threshold].index.tolist()
-            df['alto_riesgo'] = df['nombre_de_la_colonia'].isin(high_risk_areas).astype(int)
+            df["alto_riesgo"] = df["nombre_de_la_colonia"].isin(high_risk_areas).astype(int)
         else:
-            df['alto_riesgo'] = 0
+            df["alto_riesgo"] = 0
 
         # 6. Definir columnas finales a exportar
         feature_candidates = [
-            'hora', 'dia_semana', 'mes', 'fin_semana',
-            'hora_sin', 'hora_cos', 'dia_sin', 'dia_cos', 'mes_sin', 'mes_cos',
-            'índice_densidad_poblacional'
+            "hora",
+            "dia_semana",
+            "mes",
+            "fin_semana",
+            "hora_sin",
+            "hora_cos",
+            "dia_sin",
+            "dia_cos",
+            "mes_sin",
+            "mes_cos",
+            "índice_densidad_poblacional",
         ]
-        
+
         self.feature_columns = [feat for feat in feature_candidates if feat in df.columns]
-        if 'nivel_económico_cod' in df.columns:
-            self.feature_columns.append('nivel_económico_cod')
+        if "nivel_económico_cod" in df.columns:
+            self.feature_columns.append("nivel_económico_cod")
 
         return df
 
@@ -194,14 +203,14 @@ class CrimeFeatureExtractor:
         Create standard cyclical time features for real-time inference.
         """
         return {
-            'hora': time_point.hour,
-            'dia_semana': time_point.weekday(),
-            'mes': time_point.month,
-            'fin_semana': 1 if time_point.weekday() >= 5 else 0,
-            'hora_sin': float(np.sin(2 * np.pi * time_point.hour / 24)),
-            'hora_cos': float(np.cos(2 * np.pi * time_point.hour / 24)),
-            'dia_sin': float(np.sin(2 * np.pi * time_point.weekday() / 7)),
-            'dia_cos': float(np.cos(2 * np.pi * time_point.weekday() / 7)),
-            'mes_sin': float(np.sin(2 * np.pi * time_point.month / 12)),
-            'mes_cos': float(np.cos(2 * np.pi * time_point.month / 12))
+            "hora": time_point.hour,
+            "dia_semana": time_point.weekday(),
+            "mes": time_point.month,
+            "fin_semana": 1 if time_point.weekday() >= 5 else 0,
+            "hora_sin": float(np.sin(2 * np.pi * time_point.hour / 24)),
+            "hora_cos": float(np.cos(2 * np.pi * time_point.hour / 24)),
+            "dia_sin": float(np.sin(2 * np.pi * time_point.weekday() / 7)),
+            "dia_cos": float(np.cos(2 * np.pi * time_point.weekday() / 7)),
+            "mes_sin": float(np.sin(2 * np.pi * time_point.month / 12)),
+            "mes_cos": float(np.cos(2 * np.pi * time_point.month / 12)),
         }

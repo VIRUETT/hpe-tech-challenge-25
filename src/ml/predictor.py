@@ -171,10 +171,15 @@ class Predictor:
         )
         return [alert]
 
+
 class CrimePredictor:
     """Loads the trained crime model and predicts high-risk areas in real-time."""
 
-    def __init__(self, model_path: str = "src/ml/crime_model.joblib", confidence_threshold: float = 0.90):
+    def __init__(
+        self,
+        model_path: str = "src/ml/crime_model.joblib",
+        confidence_threshold: float = 0.90,
+    ):
         """
         Initialize the predictor by loading the trained artifacts.
 
@@ -188,15 +193,18 @@ class CrimePredictor:
         try:
             logger.info("loading_crime_model", path=model_path)
             artifacts = joblib.load(model_path)
-            
-            self.model = artifacts['model']
-            self.scaler = artifacts['scaler']
-            self.extractor = artifacts['extractor']
-            self.neighborhood_stats = artifacts['neighborhood_stats']
-            
+
+            self.model = artifacts["model"]
+            self.scaler = artifacts["scaler"]
+            self.extractor = artifacts["extractor"]
+            self.neighborhood_stats = artifacts["neighborhood_stats"]
+
             self.is_ready = True
-            logger.info("crime_model_loaded_successfully", neighborhoods=len(self.neighborhood_stats))
-            
+            logger.info(
+                "crime_model_loaded_successfully",
+                neighborhoods=len(self.neighborhood_stats),
+            )
+
         except FileNotFoundError:
             logger.error("crime_model_not_found", path=model_path)
         except Exception as e:
@@ -210,7 +218,7 @@ class CrimePredictor:
             current_time: The time to evaluate. Defaults to datetime.now().
 
         Returns:
-            A list of high-risk neighborhoods with their predicted probability, 
+            A list of high-risk neighborhoods with their predicted probability,
             GPS centroids, and most common crime types.
         """
         if not self.is_ready:
@@ -229,22 +237,22 @@ class CrimePredictor:
             try:
                 # Combine time features with neighborhood-specific features
                 neighborhood_features = time_features.copy()
-                
+
                 # Add density
-                neighborhood_features['índice_densidad_poblacional'] = stats.get('avg_density', 0)
-                
+                neighborhood_features["índice_densidad_poblacional"] = stats.get("avg_density", 0)
+
                 # Add encoded economic level if it was part of the training features
-                if 'nivel_económico_cod' in self.extractor.feature_columns:
-                    economic_level = stats.get('economic_level', 'desconocido')
-                    if 'nivel_económico' in self.extractor.label_encoders:
-                        le = self.extractor.label_encoders['nivel_económico']
+                if "nivel_económico_cod" in self.extractor.feature_columns:
+                    economic_level = stats.get("economic_level", "desconocido")
+                    if "nivel_económico" in self.extractor.label_encoders:
+                        le = self.extractor.label_encoders["nivel_económico"]
                         try:
                             # Transform returns an array, we need the first item
                             eco_cod = le.transform([economic_level])[0]
-                            neighborhood_features['nivel_económico_cod'] = eco_cod
+                            neighborhood_features["nivel_económico_cod"] = eco_cod
                         except ValueError:
                             # If the level wasn't seen during training
-                            neighborhood_features['nivel_económico_cod'] = 0
+                            neighborhood_features["nivel_económico_cod"] = 0
 
                 # Ensure features are in the exact order the model expects
                 features_list = []
@@ -253,7 +261,7 @@ class CrimePredictor:
 
                 # Create a DataFrame for the scaler
                 features_df = pd.DataFrame([features_list], columns=self.extractor.feature_columns)
-                
+
                 # Scale features
                 features_scaled = self.scaler.transform(features_df)
 
@@ -263,21 +271,31 @@ class CrimePredictor:
 
                 # Filter by threshold
                 if risk_proba >= self.confidence_threshold:
-                    common_crime = list(stats['crime_types'].keys())[0] if stats['crime_types'] else "desconocido"
-                    
-                    recommendations.append({
-                        'neighborhood': neighborhood,
-                        'risk_probability': risk_proba,
-                        'latitude': stats['centroid_lat'],
-                        'longitude': stats['centroid_lon'],
-                        'common_crime_type': common_crime
-                    })
+                    common_crime = (
+                        list(stats["crime_types"].keys())[0]
+                        if stats["crime_types"]
+                        else "desconocido"
+                    )
+
+                    recommendations.append(
+                        {
+                            "neighborhood": neighborhood,
+                            "risk_probability": risk_proba,
+                            "latitude": stats["centroid_lat"],
+                            "longitude": stats["centroid_lon"],
+                            "common_crime_type": common_crime,
+                        }
+                    )
 
             except Exception as e:
-                logger.warning("prediction_error_for_neighborhood", neighborhood=neighborhood, error=str(e))
+                logger.warning(
+                    "prediction_error_for_neighborhood",
+                    neighborhood=neighborhood,
+                    error=str(e),
+                )
                 continue
 
         # Sort by highest risk first
-        recommendations.sort(key=lambda x: x['risk_probability'], reverse=True)
-        
+        recommendations.sort(key=lambda x: x["risk_probability"], reverse=True)
+
         return recommendations

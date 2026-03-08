@@ -27,6 +27,7 @@ from src.vehicle_agent.telemetry_generator import SimpleTelemetryGenerator
 
 logger = structlog.get_logger(__name__)
 
+
 class SyntheticDataGenerator:
     """Handles the generation of synthetic telemetry data for vehicle training."""
 
@@ -63,8 +64,10 @@ class SyntheticDataGenerator:
             (generator, injector) tuple
         """
         random.seed(self.random_seed + seed_offset)
-        vtype_prefix = {"ambulance": "AMB", "fire_truck": "FIRE", "police": "POL"}[vehicle_type.value]
-        
+        vtype_prefix = {"ambulance": "AMB", "fire_truck": "FIRE", "police": "POL"}[
+            vehicle_type.value
+        ]
+
         config = AgentConfig(
             vehicle_id=f"TRN-{vtype_prefix}-{seed_offset:03d}",
             vehicle_type=vehicle_type,
@@ -72,7 +75,7 @@ class SyntheticDataGenerator:
         )
         generator = SimpleTelemetryGenerator(config)
         injector = FailureInjector(vehicle_type=vehicle_type)
-        
+
         return generator, injector
 
     def generate(self, num_samples: int = 14000) -> pd.DataFrame:
@@ -101,7 +104,9 @@ class SyntheticDataGenerator:
                 extractor = TelemetryFeatureExtractor(window_size=10)
 
                 # Warm-up phase
-                warmup_ticks = 0 if scenario is None else random.randint(self.warmup_min, self.warmup_max)
+                warmup_ticks = (
+                    0 if scenario is None else random.randint(self.warmup_min, self.warmup_max)
+                )
                 for _ in range(warmup_ticks):
                     telemetry = generator.generate(OperationalStatus.EN_ROUTE)
                     extractor.add_telemetry(telemetry)
@@ -135,7 +140,9 @@ class TelemetryModelTrainer:
     def __init__(self, random_seed: int = 42) -> None:
         self.random_seed = random_seed
 
-    def train_and_save(self, output_path: str = "src/ml/telemetry_model.joblib", num_samples: int = 14000) -> None:
+    def train_and_save(
+        self, output_path: str = "src/ml/telemetry_model.joblib", num_samples: int = 14000
+    ) -> None:
         """Train the RandomForestClassifier and save it.
 
         Args:
@@ -146,7 +153,9 @@ class TelemetryModelTrainer:
         df = data_generator.generate(num_samples=num_samples)
 
         logger.info(
-            "training_model", samples=len(df), label_distribution=df["label"].value_counts().to_dict()
+            "training_model",
+            samples=len(df),
+            label_distribution=df["label"].value_counts().to_dict(),
         )
 
         X = df.drop(columns=["label"])
@@ -162,8 +171,7 @@ class TelemetryModelTrainer:
             random_state=self.random_seed,
             class_weight="balanced",
         )
-        
-        
+
         clf.fit(X_train, y_train)
 
         # Evaluate

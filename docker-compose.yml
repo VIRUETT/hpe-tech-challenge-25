@@ -487,6 +487,194 @@ services:
           memory: 256M
 
   # -------------------------------------------------------------------------
+  # Vehicle Agent 8 - Ambulance (AMB-003)
+  # -------------------------------------------------------------------------
+  vehicle-agent-8:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: aegis-vehicle-amb-003
+    restart: unless-stopped
+    command:
+      [
+        "python",
+        "-m",
+        "src.scripts.start_vehicle",
+        "--vehicle-id",
+        "AMB-003",
+        "--vehicle-type",
+        "ambulance",
+        "--redis-host",
+        "redis",
+        "--latitude",
+        "37.7610",
+        "--longitude",
+        "-122.4470",
+      ]
+    environment:
+      AEGIS_ENV: production
+      VEHICLE_ID: AMB-003
+      VEHICLE_TYPE: ambulance
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TELEMETRY_INTERVAL: 5
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # Vehicle Agent 9 - Fire Truck (FIR-003)
+  # -------------------------------------------------------------------------
+  vehicle-agent-9:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: aegis-vehicle-fir-003
+    restart: unless-stopped
+    command:
+      [
+        "python",
+        "-m",
+        "src.scripts.start_vehicle",
+        "--vehicle-id",
+        "FIR-003",
+        "--vehicle-type",
+        "fire_truck",
+        "--redis-host",
+        "redis",
+        "--latitude",
+        "37.7440",
+        "--longitude",
+        "-122.4050",
+      ]
+    environment:
+      AEGIS_ENV: production
+      VEHICLE_ID: FIR-003
+      VEHICLE_TYPE: fire_truck
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TELEMETRY_INTERVAL: 5
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # Vehicle Agent 10 - Police (POL-004)
+  # -------------------------------------------------------------------------
+  vehicle-agent-10:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: aegis-vehicle-pol-004
+    restart: unless-stopped
+    command:
+      [
+        "python",
+        "-m",
+        "src.scripts.start_vehicle",
+        "--vehicle-id",
+        "POL-004",
+        "--vehicle-type",
+        "police",
+        "--redis-host",
+        "redis",
+        "--latitude",
+        "37.8040",
+        "--longitude",
+        "-122.4140",
+      ]
+    environment:
+      AEGIS_ENV: production
+      VEHICLE_ID: POL-004
+      VEHICLE_TYPE: police
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TELEMETRY_INTERVAL: 5
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+
+  # -------------------------------------------------------------------------
+  # Vehicle Agent 11 - Police (POL-005)
+  # -------------------------------------------------------------------------
+  vehicle-agent-11:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: aegis-vehicle-pol-005
+    restart: unless-stopped
+    command:
+      [
+        "python",
+        "-m",
+        "src.scripts.start_vehicle",
+        "--vehicle-id",
+        "POL-005",
+        "--vehicle-type",
+        "police",
+        "--redis-host",
+        "redis",
+        "--latitude",
+        "37.7350",
+        "--longitude",
+        "-122.3900",
+      ]
+    environment:
+      AEGIS_ENV: production
+      VEHICLE_ID: POL-005
+      VEHICLE_TYPE: police
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TELEMETRY_INTERVAL: 5
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      orchestrator:
+        condition: service_healthy
+    networks:
+      - aegis-network
+    deploy:
+      resources:
+        limits:
+          cpus: "0.3"
+          memory: 256M
+
+  # -------------------------------------------------------------------------
   # Dashboard - Web UI for Real-time Visualization (Streamlit)
   # -------------------------------------------------------------------------
   dashboard:

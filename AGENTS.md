@@ -1,104 +1,159 @@
-# Agent Development Guide - Project AEGIS
+# AGENTS.md - Project AEGIS
 
-**Project:** HPE GreenLake Tech Challenge - Digital Twin
-**Language:** Python 3.13 | **Manager:** `uv` | **Status:** POC
+This file is for agentic coding assistants operating in this repository.
 
-This guide provides crucial context, commands, and rules for AI coding agents operating in this repository.
+## Project Snapshot
 
-## 🛠️ Development Commands
+- Project: HPE GreenLake Tech Challenge - Project AEGIS
+- Domain: digital twin emergency fleet (ambulance, fire, police)
+- Language/runtime: Python 3.13
+- Package/environment manager: `uv`
+- Source tree: `src/`
+- Test tree: `tests/` (`unit/`, `integration/`, `bdd/`, `e2e/`, `features/`)
 
-### Environment & Execution
+## Repository Layout
 
-```bash
-uv sync                           # Install all dependencies (including dev)
-uv sync --no-dev                  # Production dependencies only
-uv run python main.py             # Main entry point
-uv run aegis-vehicle              # Vehicle simulation
-uv run aegis-orchestrator         # Central coordinator
-```
+- `src/core/`: abstractions (`Clock`, messaging contracts, persistence contracts)
+- `src/infrastructure/`: implementations (`RedisMessageBus`, `InMemoryMessageBus`)
+- `src/vehicle_agent/`: vehicle behavior and telemetry runtime
+- `src/orchestrator/`: dispatch coordination and emergency workflow
+- `src/models/`: Pydantic models and event payloads
+- `src/storage/`: DB config, models, repositories
+- `src/ml/`: prediction/training components
+- `src/scripts/`: CLI entrypoints (`aegis-vehicle`, `aegis-orchestrator`, `aegis-fleet`)
 
-### Testing (Pytest)
-
-Agents must verify their work. Running a **single test** for targeted validation is highly recommended:
-
-```bash
-# Running a single test (Recommended for rapid iteration):
-uv run pytest tests/unit/models/test_vehicle.py::TestGeoLocation::test_geolocation_valid_creation
-
-# Other test commands:
-uv run pytest                                     # Run all tests
-uv run pytest tests/unit/models/test_vehicle.py   # Run specific file
-uv run pytest -m unit                             # Run only unit tests
-uv run pytest -m integration                      # Run integration tests
-uv run pytest --cov=src --cov-report=term-missing # Check missing coverage
-```
-
-### Linting, Formatting & Type Checking
+## Build And Setup Commands
 
 ```bash
-uv run ruff format .              # Format code (auto-fix)
-uv run ruff check --fix .         # Lint and fix auto-fixable issues
-uv run mypy src/                  # Type checking (strict mode)
-uv run bandit -r src/             # Security scanning
-uv run pydocstyle src/            # Docstring validation (Google style)
-pre-commit run --all-files        # Run all pre-commit hooks
+# Install dependencies
+uv sync
+
+# CI-like install (all extras)
+uv sync --all-extras
+
+# Runtime-only install
+uv sync --no-dev
+
+# Build distribution artifacts
+uv build
 ```
 
-## 📁 Project Structure
+## Test Commands (Pytest)
 
-- `src/`: Source code modules
-  - `models/`: Pydantic data models (validation & serialization)
-  - `vehicle_agent/`: Digital twin agents
-  - `orchestrator/`: Central coordinator
-  - `ml/` & `storage/`: Machine learning & persistence
-- `tests/`: Contains `unit/`, `integration/`, and `fixtures/`
+Prefer the smallest useful scope first.
 
-## 🎨 Code Style Guidelines
+```bash
+# Single test function (preferred for quick iteration)
+uv run pytest tests/unit/models/test_models.py::TestVehicleIdentity::test_vehicle_identity_valid_creation -v
 
-- **Line Length:** 100 characters max.
-- **Type Hints:** Required for ALL functions/methods (`mypy` strict mode is enforced).
-- **Docstrings:** Google Style is mandatory for classes and public methods.
-- **Naming Conventions:**
-  - Classes: `PascalCase` (e.g., `VehicleDigitalTwin`)
-  - Functions/Variables: `snake_case` (e.g., `process_telemetry`)
-  - Constants: `UPPER_SNAKE_CASE` (e.g., `MAX_RETRIES`)
-  - Private Members: `_leading_underscore` (e.g., `_validate_data`)
-- **Async/Await:** Used extensively for network, pub/sub (Redis/MQTT), and I/O.
-- **Error Handling:** Use specific, targeted exceptions. NEVER use a bare `except:`.
+# Single test class
+uv run pytest tests/unit/vehicle_agent/test_agent.py::TestVehicleAgent -v
 
-### Imports Structure (PEP 8)
+# Single test file
+uv run pytest tests/unit/orchestrator/test_dispatch_engine.py -v
 
-Always group imports logically, separated by blank lines:
+# Marker-based runs
+uv run pytest -m unit
+uv run pytest -m integration
+uv run pytest -m simulation
 
-```python
-# 1. Standard library
-import os
-from typing import Any, Dict
+# BDD / E2E
+uv run pytest tests/bdd/ -v
+uv run pytest tests/e2e/ -v
 
-# 2. Third-party
-import pytest
-from pydantic import BaseModel
+# Parallel
+uv run pytest -n auto
 
-# 3. Local application
-from src.models.vehicle import VehicleIdentity
+# Full suite
+uv run pytest
 ```
 
-## ✅ Testing Standards
+Useful debug flags:
 
-- **Test Naming:**
-  - Files: `test_<module>.py`
-  - Classes: `Test<ClassName>`
-  - Functions: `test_<what>_<condition>_<expected>` (e.g., `test_geolocation_latitude_bounds`)
-- **Mocking:** Use `unittest.mock.AsyncMock` when patching async operations like `redis_client.publish`.
-- **Fixtures:** Centralize common test data in `conftest.py` or within `tests/fixtures/`.
+```bash
+uv run pytest -x -v
+uv run pytest --lf
+uv run pytest -s --tb=long
+uv run pytest --pdb
+```
 
-## 🔒 Architecture & Best Practices
+## Lint, Format, Type, Security, Docs
 
-1. **Message Broker Pattern:** Vehicles publish telemetry and subscribe to alerts asynchronously.
-2. **Pydantic Validation:** Always use Pydantic models to validate system inputs/outputs.
-3. **Structured Logging:** Use `structlog` for JSON logs instead of `print()`.
-4. **Timeouts:** Ensure all async I/O operations and network requests utilize appropriate timeouts.
-5. **Secrets:** Never hardcode secrets. Read them from the environment (e.g., via a `.env` file).
+```bash
+uv run ruff format .
+uv run ruff format --check .
+uv run ruff check .
+uv run ruff check --fix .
+uv run mypy src/
+uv run bandit -r src/
+uv run pydocstyle src/
+pre-commit run --all-files
+```
+
+Pre-commit hooks available in this repo include file hygiene checks, Ruff lint/format,
+mypy, Bandit, pydocstyle, pyupgrade, and commit message validation.
+
+## Code Style And Implementation Guidelines
+
+- Line length: 100 characters (`ruff`)
+- Python target: 3.13 (`ruff` + `mypy`)
+- Type hints: required for all functions and methods (`mypy` strict options)
+- Docstrings: Google style (`pydocstyle`)
+- Data validation: use Pydantic models for external I/O and event payloads
+- Logging: use `structlog`; avoid `print()` in production paths
+- Async: use `async`/`await` for I/O, messaging, and background workers
+- Secrets/config: never hardcode; load from env/config
+
+### Imports
+
+Use three groups separated by blank lines:
+
+1. Standard library
+2. Third-party packages
+3. Local `src.*` imports
+
+Ruff import sorting is enabled (`I` rules).
+
+### Naming
+
+- Classes and enums: `PascalCase`
+- Functions, methods, variables, modules: `snake_case`
+- Constants: `UPPER_SNAKE_CASE`
+- Private/internal members: leading underscore (`_internal_name`)
+- Tests:
+  - files: `test_<module>.py`
+  - classes: `Test<ClassName>`
+  - functions: `test_<behavior>_<condition>_<expected>`
+
+### Error Handling
+
+- Use specific exceptions; avoid bare `except:`
+- Validate early and fail fast (prefer Pydantic for schema-level validation)
+- In async tasks, log structured context (IDs, channels, payload metadata)
+- Re-raise only when callers have meaningful recovery/handling logic
+
+## Architecture Notes For Agents
+
+- Follow pub/sub channel contracts; keep transport concerns out of domain services
+- Keep business logic in `fleet_service` and `emergency_service`
+- Prefer dependency injection via abstractions (`Clock`, `MessageBus`, sinks)
+- In tests, favor deterministic dependencies (`FastForwardClock`, `InMemoryMessageBus`)
+- Assert behavior and outcomes, not internal implementation details
+
+## Cursor And Copilot Rules
+
+Detected Cursor rules:
+
+- `.cursor/rules/tessl__rule__tessl__cli-setup__query_library_docs.mdc`
+
+Cursor rule requirement:
+
+- Before most code tasks (especially debugging, edits, architecture questions), call the Tessl documentation tool `query_library_docs` with relevant terms.
+- If lookup fails or is not useful, continue normally.
+
+Detected Copilot instructions:
+
+- No `.github/copilot-instructions.md` file found in this repository.
 
 # Agent Rules <!-- tessl-managed -->
 

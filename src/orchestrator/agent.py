@@ -99,10 +99,10 @@ class OrchestratorAgent:
         # Optional callback for WebSocket broadcasting (injected by api.py)
         self._ws_broadcast = ws_broadcast_callback
 
-        self.fleet_service = FleetService()
+        self.fleet_service = FleetService(clock=self._clock)
         self.fleet = self.fleet_service.fleet
 
-        self.emergency_service = EmergencyService(self.fleet)
+        self.emergency_service = EmergencyService(self.fleet, clock=self._clock)
 
         self.emergencies = self.emergency_service.emergencies
         self.dispatches = self.emergency_service.dispatches
@@ -245,6 +245,17 @@ class OrchestratorAgent:
             except ValueError:
                 pass  # Ignore unknown status strings
 
+        if (
+            snap.operational_status == OperationalStatus.ON_SCENE
+            and snap.current_emergency_id is not None
+            and self.emergency_service.mark_emergency_in_progress(snap.current_emergency_id)
+        ):
+            logger.info(
+                "emergency_in_progress",
+                emergency_id=snap.current_emergency_id,
+                vehicle_id=vehicle_id,
+            )
+
         logger.debug("telemetry_processed", vehicle_id=vehicle_id)
 
         # Enqueue telemetry for asynchronous persistence
@@ -360,24 +371,43 @@ class OrchestratorAgent:
             await self.process_emergency(emergency)
 
     async def _emergency_sweeper(self) -> None:
-        """Background task that periodically cancels or dismisses stale emergencies.
+        """Background task that handles emergency lifecycle timing rules.
 
         - DISPATCHING emergencies older than EMERGENCY_DISPATCH_TIMEOUT_MINUTES
           are cancelled (no units ever became available in time).
-        - DISPATCHED/IN_PROGRESS emergencies older than
-          EMERGENCY_MAX_DURATION_MINUTES are auto-dismissed.
+        - IN_PROGRESS emergencies that reach planned duration are auto-resolved.
+        - DISPATCHED/IN_PROGRESS emergencies that exceed hard limits are auto-dismissed.
         """
         while self.running:
             try:
                 await self._clock.sleep(SWEEPER_INTERVAL_SECONDS)
 
-                to_cancel, to_dismiss = self.emergency_service.evaluate_stale_emergencies()
+                to_cancel, to_auto_resolve, to_dismiss = (
+                    self.emergency_service.evaluate_stale_emergencies()
+                )
 
                 for emergency in to_cancel:
                     logger.warning(
                         "emergency_cancelled_no_units",
                         emergency_id=emergency.emergency_id,
                     )
+
+                for emergency in to_auto_resolve:
+                    try:
+                        eta = self.emergency_service.expected_resolution_eta(emergency.emergency_id)
+                        eta_str = None if eta is None else str(eta)
+                        await self.resolve_emergency(emergency.emergency_id)
+                        logger.info(
+                            "emergency_auto_resolved",
+                            emergency_id=emergency.emergency_id,
+                            expected_eta=eta_str,
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "auto_resolve_failed",
+                            emergency_id=emergency.emergency_id,
+                            error=str(exc),
+                        )
 
                 for emergency in to_dismiss:
                     try:
@@ -557,6 +587,7 @@ class OrchestratorAgent:
                     },
                 )
             )
+
     async def dismiss_emergency(self, emergency_id: str) -> list[str]:
         """Mark an emergency as dismissed and release assigned units."""
         released = self.emergency_service.dismiss_emergency(emergency_id)
