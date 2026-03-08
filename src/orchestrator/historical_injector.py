@@ -6,6 +6,8 @@ current simulated day of the week and hour. Respects SF boundaries.
 """
 
 from pathlib import Path
+import random
+
 import pandas as pd
 
 import structlog
@@ -14,6 +16,7 @@ from src.models.emergency import (
     EMERGENCY_UNITS_DEFAULTS,
     Emergency,
     EmergencySeverity,
+    EmergencyStatus,
     EmergencyType,
     Location,
     scale_units_by_severity,
@@ -27,6 +30,7 @@ logger = structlog.get_logger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_CSV = PROJECT_ROOT / "data" / "delitos_sf.csv"
 
+
 class HistoricalCrimeInjector:
     def __init__(
         self,
@@ -34,28 +38,45 @@ class HistoricalCrimeInjector:
         clock: Clock,
         csv_path: str = str(DEFAULT_CSV),
         check_interval_seconds: float = 1800.0,
+        hourly_injection_probability: float = 0.25,
+        max_active_historical: int = 3,
     ) -> None:
         self.orchestrator = orchestrator
         self.clock = clock
         self.csv_path = csv_path
         self.check_interval_seconds = check_interval_seconds
-        
+        self.hourly_injection_probability = hourly_injection_probability
+        self.max_active_historical = max_active_historical
+
         self.running = False
         self.holdout_data = pd.DataFrame()
         self.last_processed_time: tuple[int, int] | None = None
 
+    def _active_historical_emergencies(self) -> int:
+        return sum(
+            1
+            for emergency in self.orchestrator.emergencies.values()
+            if emergency.reported_by == "historical_playback"
+            and emergency.status
+            not in (
+                EmergencyStatus.RESOLVED,
+                EmergencyStatus.CANCELLED,
+                EmergencyStatus.DISMISSED,
+            )
+        )
+
     def _prepare_data(self) -> None:
         try:
             df = pd.read_csv(self.csv_path)
-            if 'fecha_dt' in df.columns:
-                df['fecha_dt'] = pd.to_datetime(df['fecha_dt'], errors='coerce')
-            elif 'fecha' in df.columns:
-                df['fecha_dt'] = pd.to_datetime(df['fecha'], format='%d/%m/%Y', errors='coerce')
-            if 'hour_int' not in df.columns:
-                df['hour_int'] = pd.to_datetime(df['hora'], format='%H:%M', errors='coerce').dt.hour
-            
-            df['day_of_week'] = df['fecha_dt'].dt.dayofweek
-            df = df.sort_values(by=['fecha_dt', 'hora'])
+            if "fecha_dt" in df.columns:
+                df["fecha_dt"] = pd.to_datetime(df["fecha_dt"], errors="coerce")
+            elif "fecha" in df.columns:
+                df["fecha_dt"] = pd.to_datetime(df["fecha"], format="%d/%m/%Y", errors="coerce")
+            if "hour_int" not in df.columns:
+                df["hour_int"] = pd.to_datetime(df["hora"], format="%H:%M", errors="coerce").dt.hour
+
+            df["day_of_week"] = df["fecha_dt"].dt.dayofweek
+            df = df.sort_values(by=["fecha_dt", "hora"])
             split_idx = int(len(df) * 0.8)
             self.holdout_data = df.iloc[split_idx:].copy()
             logger.info("historical_data_prepared", total_playback_events=len(self.holdout_data))
@@ -64,7 +85,8 @@ class HistoricalCrimeInjector:
 
     async def start(self) -> None:
         self._prepare_data()
-        if self.holdout_data.empty: return
+        if self.holdout_data.empty:
+            return
 
         self.running = True
         logger.info("historical_injector_started", start_sim_time=self.clock.now().isoformat())
@@ -77,9 +99,17 @@ class HistoricalCrimeInjector:
             if (current_dow, current_hour) != self.last_processed_time:
                 self.last_processed_time = (current_dow, current_hour)
 
+                if self._active_historical_emergencies() >= self.max_active_historical:
+                    await self.clock.sleep(self.check_interval_seconds)
+                    continue
+
+                if random.random() > self.hourly_injection_probability:
+                    await self.clock.sleep(self.check_interval_seconds)
+                    continue
+
                 matching_crimes = self.holdout_data[
-                    (self.holdout_data['day_of_week'] == current_dow) &
-                    (self.holdout_data['hour_int'] == current_hour)
+                    (self.holdout_data["day_of_week"] == current_dow)
+                    & (self.holdout_data["hour_int"] == current_hour)
                 ]
 
                 if not matching_crimes.empty:
@@ -96,17 +126,17 @@ class HistoricalCrimeInjector:
         self.running = False
 
     async def _inject_crime(self, row: pd.Series) -> None:
-        neighborhood = row.get('nombre_de_la_colonia', 'Unknown Area')
-        crime_type_str = row.get('crime_type', 'crime').upper()
-        severity = EmergencySeverity.HIGH 
+        neighborhood = row.get("nombre_de_la_colonia", "Unknown Area")
+        crime_type_str = row.get("crime_type", "crime").upper()
+        severity = EmergencySeverity.HIGH
 
-        lat = max(SF_LAT_MIN, min(SF_LAT_MAX, float(row['latitud'])))
-        lon = max(SF_LON_MIN, min(SF_LON_MAX, float(row['longitud'])))
+        lat = max(SF_LAT_MIN, min(SF_LAT_MAX, float(row["latitud"])))
+        lon = max(SF_LON_MIN, min(SF_LON_MAX, float(row["longitud"])))
 
         location = Location(latitude=lat, longitude=lon, timestamp=self.clock.now())
         em_type = EmergencyType.CRIME
         units_required = scale_units_by_severity(EMERGENCY_UNITS_DEFAULTS[em_type], severity)
-        sim_time_str = self.clock.now().strftime('%A %H:%M')
+        sim_time_str = self.clock.now().strftime("%A %H:%M")
 
         emergency = Emergency(
             emergency_type=em_type,

@@ -78,6 +78,7 @@ class EmergencyResponse(BaseModel):
     created_at: datetime
     dispatched_at: datetime | None
     resolved_at: datetime | None
+    dismissed_at: datetime | None
     dispatch_id: str | None
     assigned_vehicles: list[str]
 
@@ -168,7 +169,7 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         db.connect()
-        
+
         # Override the orchestrator's clock if it was initialized with RealClock
         sim_start_time = datetime(2026, 3, 6, 18, 0, tzinfo=UTC)
         shared_clock = FastForwardClock(start_at=sim_start_time)
@@ -177,11 +178,15 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
         task = asyncio.create_task(_run_orchestrator(orchestrator))
 
         # Start Historical Injector
-        historical_injector = HistoricalCrimeInjector(orchestrator, clock=shared_clock, check_interval_seconds=1800.0)
+        historical_injector = HistoricalCrimeInjector(
+            orchestrator, clock=shared_clock, check_interval_seconds=1800.0
+        )
         hist_task = asyncio.create_task(historical_injector.start())
-        
+
         # Start AI Predictor
-        ai_generator = EmergencyGenerator(orchestrator, clock=shared_clock, check_interval_seconds=1800.0)
+        ai_generator = EmergencyGenerator(
+            orchestrator, clock=shared_clock, check_interval_seconds=1800.0
+        )
         ai_gen_task = asyncio.create_task(ai_generator.start())
 
         # Time Machine Driver: Advances the FastForwardClock 30 mins every 3 real seconds
@@ -192,7 +197,7 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
             while orchestrator.running:
                 await asyncio.sleep(3.0)
                 shared_clock.advance(1800.0)
-                
+
         clock_task = asyncio.create_task(_drive_clock())
 
         yield
@@ -201,12 +206,12 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
         orchestrator.running = False
         ai_generator.stop()
         historical_injector.stop()
-        
+
         task.cancel()
         ai_gen_task.cancel()
         hist_task.cancel()
         clock_task.cancel()
-        
+
         await orchestrator.stop()
         await db.disconnect()
 
@@ -417,8 +422,8 @@ def create_app(orchestrator: OrchestratorAgent) -> FastAPI:
         emergency = orchestrator.emergencies.get(emergency_id)
         if not emergency:
             raise HTTPException(status_code=404, detail="Emergency not found")
-        if emergency.status == EmergencyStatus.RESOLVED:
-            raise HTTPException(status_code=409, detail="Emergency already resolved")
+        if emergency.status in (EmergencyStatus.RESOLVED, EmergencyStatus.DISMISSED):
+            raise HTTPException(status_code=409, detail="Emergency already closed")
 
         released = await orchestrator.resolve_emergency(emergency_id)
 
@@ -488,6 +493,7 @@ def _emergency_to_dict(
         "created_at": emergency.created_at.isoformat(),
         "dispatched_at": (emergency.dispatched_at.isoformat() if emergency.dispatched_at else None),
         "resolved_at": (emergency.resolved_at.isoformat() if emergency.resolved_at else None),
+        "dismissed_at": (emergency.dismissed_at.isoformat() if emergency.dismissed_at else None),
         "dispatch_id": dispatch.dispatch_id if dispatch else None,
         "assigned_vehicles": dispatch.vehicle_ids if dispatch else [],
     }
